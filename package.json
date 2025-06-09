@@ -28,5 +28,8 @@
   "directories": {
     "backend": "./backend",
     "frontend": "./frontend"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.1"
   }
 }

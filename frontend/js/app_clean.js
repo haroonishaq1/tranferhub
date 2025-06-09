@@ -136,9 +136,47 @@ class SendAnywhereApp {    constructor() {
             this.showToast('Transfer code expired', 'warning');
             this.resetTransfer();
         });
-        
-        this.socket.on('relay-transfer', (data) => {
+          this.socket.on('relay-transfer', (data) => {
             this.handleRelayTransfer(data);
+        });
+        
+        // Enhanced server relay event handlers for cross-device transfers
+        this.socket.on('relay-file-upload-ack', (data) => {
+            console.log('Server acknowledged file upload:', data.fileName);
+        });
+        
+        this.socket.on('relay-upload-complete-ack', (data) => {
+            console.log('Server acknowledged upload completion for code:', data.code);
+            this.showToast('Files successfully stored on server!', 'success');
+        });
+        
+        this.socket.on('relay-file-download', (data) => {
+            console.log('Received file from server relay:', data.fileData.name);
+            this.handleServerRelayedFile(data);
+        });
+        
+        this.socket.on('relay-download-complete', (data) => {
+            console.log('Server relay download completed');
+            this.handleServerRelayComplete(data);
+        });
+        
+        this.socket.on('relay-error', (data) => {
+            console.error('Server relay error:', data.error);
+            this.showToast('Server relay error: ' + data.error, 'error');
+            
+            // Update UI based on whether we're sender or receiver
+            const statusMessage = document.getElementById('status-message');
+            const receiveMessage = document.getElementById('receive-message');
+            
+            if (statusMessage && this.selectedFiles.length > 0) {
+                statusMessage.textContent = 'Server transfer failed. Please try again.';
+                statusMessage.className = 'status-error';
+            }
+            
+            if (receiveMessage && !this.selectedFiles.length) {
+                receiveMessage.textContent = 'Server download failed. Please try again.';
+                receiveMessage.className = 'status-error';
+            }
         });
     }
 
@@ -952,21 +990,21 @@ class SendAnywhereApp {    constructor() {
     }    initPeerConnection(initiator, targetSocketId) {
         console.log(`Initializing peer connection - Initiator: ${initiator}, Target: ${targetSocketId}, My ID: ${this.socket.id}`);
         
-        // Enhanced ICE server configuration with multiple reliable TURN servers
+        // Enhanced ICE server configuration with more reliable TURN servers
         const iceServers = [
             // Google STUN servers (multiple for redundancy)
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
             { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' },
-            { urls: 'stun:stun4.l.google.com:19302' },
             
-            // Additional STUN servers for better connectivity
+            // Additional reliable STUN servers
             { urls: 'stun:stun.stunprotocol.org:3478' },
             { urls: 'stun:stun.voiparound.com' },
             { urls: 'stun:stun.voipbuster.com' },
+            { urls: 'stun:stun.voipstunt.com' },
+            { urls: 'stun:stun.voxgratia.org' },
             
-            // Multiple TURN servers for NAT traversal (production-ready)
+            // Multiple reliable TURN servers for NAT traversal
             {
                 urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
                 username: 'openrelayproject',
@@ -977,21 +1015,31 @@ class SendAnywhereApp {    constructor() {
                 username: 'openrelayproject',
                 credential: 'openrelayproject'
             },
-            // Additional TURN servers for better reliability
+            // Additional TURN servers for better cross-network connectivity
             {
                 urls: ['turn:relay1.expressturn.com:3478'],
                 username: 'efJBIBVP6ETOFD3XKX',
                 credential: 'WmtzanB3ZnpERzRYVw'
             },
-            // Backup TURN servers
             {
                 urls: 'turn:numb.viagenie.ca',
                 username: 'webrtc@live.com',
                 credential: 'muazkh'
+            },
+            // Additional backup TURN servers
+            {
+                urls: ['turn:turn.bistri.com:80'],
+                username: 'homeo',
+                credential: 'homeo'
+            },
+            {
+                urls: ['turn:turn.anyfirewall.com:443?transport=tcp'],
+                username: 'webrtc',
+                credential: 'webrtc'
             }
         ];
 
-        console.log('Using ICE servers:', iceServers.length, 'servers configured');
+        console.log('Using ICE servers:', iceServers.length, 'servers configured for cross-device connectivity');
 
         // Check if SimplePeer is available
         if (typeof SimplePeer === 'undefined') {
@@ -1002,55 +1050,68 @@ class SendAnywhereApp {    constructor() {
 
         this.peer = new SimplePeer({
             initiator: initiator,
-            trickle: true, // Enable trickle ICE for faster connection
+            trickle: true,
             config: {
                 iceServers: iceServers,
-                iceCandidatePoolSize: 10, // Increase candidate pool
-                iceTransportPolicy: 'all', // Use all transport types
+                iceCandidatePoolSize: 15, // Increased for better connectivity
+                iceTransportPolicy: 'all',
                 bundlePolicy: 'max-bundle',
                 rtcpMuxPolicy: 'require'
             },
             objectMode: true,
-            allowHalfTrickle: false, // Wait for all candidates for better reliability
-            iceCompleteTimeout: 15000, // Shorter timeout to fail faster
+            allowHalfTrickle: false,
+            iceCompleteTimeout: 20000, // Extended for cross-device connections
             offerOptions: {
                 offerToReceiveAudio: false,
                 offerToReceiveVideo: false
             }
         });
-        
-        // Shorter connection timeout - fail fast and fallback
+          // Reduce timeout for cross-device connections to fail faster to server relay
         this.connectionTimeout = setTimeout(() => {
             if (this.peer && !this.peer.connected) {
-                console.error('Connection timeout after 15 seconds - initiating fallback');
+                console.error('Connection timeout after 10 seconds - initiating fallback for cross-device transfer');
                 console.log('Peer state:', {
                     connected: this.peer.connected,
                     connecting: this.peer.connecting,
                     destroyed: this.peer.destroyed
                 });
                 
-                // Try to get more detailed connection info
+                // Enhanced debugging for cross-device issues
                 if (this.peer._pc) {
                     console.log('WebRTC states:', {
                         connectionState: this.peer._pc.connectionState,
                         iceConnectionState: this.peer._pc.iceConnectionState,
-                        iceGatheringState: this.peer._pc.iceGatheringState
+                        iceGatheringState: this.peer._pc.iceGatheringState,
+                        signalingState: this.peer._pc.signalingState
                     });
+                    
+                    // Log ICE candidates for debugging NAT issues
+                    this.peer._pc.getStats().then(stats => {
+                        let candidatePairs = [];
+                        stats.forEach(report => {
+                            if (report.type === 'candidate-pair') {
+                                candidatePairs.push(report);
+                            }
+                        });
+                        console.log('ICE candidate pairs:', candidatePairs.length);
+                    }).catch(e => console.log('Could not get WebRTC stats:', e));
                 }
                 
-                this.handleConnectionFailure('Connection timeout - peer connection could not be established');
+                this.handleConnectionFailure('Cross-device connection timeout - falling back to server relay');
             }
-        }, 15000); // Reduced from 30 seconds to 15 seconds
+        }, 10000); // Reduced timeout for faster fallback to server relay
 
         this.peer.on('signal', (signal) => {
             console.log(`Sending signal to ${targetSocketId}:`, signal.type);
             
-            // Log ICE candidates for debugging
+            // Enhanced ICE candidate logging for debugging
             if (signal.type === 'candidate' && signal.candidate) {
                 console.log('Sending ICE candidate:', {
                     type: signal.candidate.type,
                     protocol: signal.candidate.protocol,
-                    address: signal.candidate.address
+                    address: signal.candidate.address,
+                    port: signal.candidate.port,
+                    foundation: signal.candidate.foundation
                 });
             }
             
@@ -1077,7 +1138,7 @@ class SendAnywhereApp {    constructor() {
             if (initiator) {
                 // Sender: start sending files
                 console.log('Starting file transfer as sender');
-                setTimeout(() => this.sendFiles(), 500); // Small delay to ensure connection is stable
+                setTimeout(() => this.sendFiles(), 500);
             } else {
                 console.log('Ready to receive files');
                 this.showToast('Ready to receive files...', 'info');
@@ -1090,6 +1151,11 @@ class SendAnywhereApp {    constructor() {
 
         this.peer.on('error', (err) => {
             console.error('❌ Peer connection error:', err);
+            console.log('Error details:', {
+                message: err.message,
+                code: err.code,
+                stack: err.stack
+            });
             this.handleConnectionFailure(err.message || 'Connection error');
         });
 
@@ -1100,33 +1166,39 @@ class SendAnywhereApp {    constructor() {
                 this.connectionTimeout = null;
             }
             
-            // Stop heartbeat
             this.stopConnectionHeartbeat();
-            
             this.peer = null;
         });
         
-        // Enhanced ICE connection monitoring
+        // Enhanced ICE connection monitoring for cross-device debugging
         if (this.peer._pc) {
             this.peer._pc.oniceconnectionstatechange = () => {
                 const state = this.peer._pc.iceConnectionState;
                 console.log('🔄 ICE connection state changed to:', state);
                 
-                if (state === 'failed') {
-                    console.error('❌ ICE connection failed - NAT/firewall issues detected');
-                    this.handleConnectionFailure('Network connection failed - NAT/firewall may be blocking connection');
-                } else if (state === 'disconnected') {
-                    console.warn('⚠️ ICE connection disconnected - connection may be unstable');
-                    // Give it time to reconnect before failing
-                    setTimeout(() => {
-                        if (this.peer && this.peer._pc && this.peer._pc.iceConnectionState === 'disconnected') {
-                            this.handleConnectionFailure('Network connection lost');
-                        }
-                    }, 5000);
-                } else if (state === 'connected' || state === 'completed') {
-                    console.log('✅ ICE connection established successfully');
-                } else if (state === 'checking') {
-                    console.log('🔍 ICE connection checking...');
+                switch (state) {
+                    case 'checking':
+                        console.log('🔍 ICE checking - attempting to establish connection...');
+                        this.showToast('Establishing connection...', 'info', 3000);
+                        break;
+                    case 'connected':
+                        console.log('✅ ICE connected - peer connection established');
+                        break;
+                    case 'completed':
+                        console.log('✅ ICE completed - connection is stable');
+                        break;
+                    case 'failed':
+                        console.error('❌ ICE connection failed - NAT/firewall issues detected');
+                        console.log('This usually indicates NAT traversal problems between different networks');
+                        this.handleConnectionFailure('Network connection failed - devices are on different networks that cannot connect directly. Using server relay...');
+                        break;
+                    case 'disconnected':
+                        console.warn('⚠️ ICE disconnected - connection lost');
+                        this.showToast('Connection unstable...', 'warning', 2000);
+                        break;
+                    case 'closed':
+                        console.log('🔒 ICE closed - connection terminated');
+                        break;
                 }
             };
             
@@ -1134,30 +1206,86 @@ class SendAnywhereApp {    constructor() {
                 const state = this.peer._pc.connectionState;
                 console.log('🔄 Peer connection state changed to:', state);
                 
-                if (state === 'failed') {
-                    console.error('❌ Peer connection failed');
-                    this.handleConnectionFailure('Peer connection failed');
-                } else if (state === 'connected') {
-                    console.log('✅ Peer connection fully established');
+                switch (state) {
+                    case 'connecting':
+                        console.log('🔗 WebRTC connecting...');
+                        break;
+                    case 'connected':
+                        console.log('✅ WebRTC connected successfully');
+                        break;
+                    case 'disconnected':
+                        console.warn('⚠️ WebRTC disconnected');
+                        break;
+                    case 'failed':
+                        console.error('❌ WebRTC connection failed');
+                        this.handleConnectionFailure('WebRTC connection failed - using server relay');
+                        break;
+                    case 'closed':
+                        console.log('🔒 WebRTC connection closed');
+                        break;
                 }
             };
             
-            // Enhanced ICE candidate logging
+            // Enhanced ICE candidate logging for debugging NAT issues
             this.peer._pc.onicecandidate = (event) => {
                 if (event.candidate) {
-                    console.log('📤 Generated ICE candidate:', {
-                        type: event.candidate.type,
-                        protocol: event.candidate.protocol,
-                        address: event.candidate.address || 'hidden'
+                    const candidate = event.candidate;
+                    console.log('🧊 ICE candidate generated:', {
+                        type: candidate.type,
+                        protocol: candidate.protocol,
+                        address: candidate.address,
+                        port: candidate.port,
+                        priority: candidate.priority,
+                        foundation: candidate.foundation
                     });
+                    
+                    // Log candidate types to help debug connectivity
+                    if (candidate.type === 'host') {
+                        console.log('📍 Host candidate (local IP)');
+                    } else if (candidate.type === 'srflx') {
+                        console.log('🌐 Server reflexive candidate (public IP via STUN)');
+                    } else if (candidate.type === 'relay') {
+                        console.log('🔄 Relay candidate (via TURN server)');
+                    }
                 } else {
-                    console.log('✅ ICE candidate gathering complete');
+                    console.log('🧊 ICE candidate gathering completed');
                 }
             };
             
             // Monitor ICE gathering state
             this.peer._pc.onicegatheringstatechange = () => {
-                console.log('🔄 ICE gathering state:', this.peer._pc.iceGatheringState);
+                const state = this.peer._pc.iceGatheringState;
+                console.log('🔄 ICE gathering state:', state);
+                
+                if (state === 'complete') {
+                    console.log('🎯 ICE gathering completed - all candidates collected');
+                    
+                    // Log final candidate count for debugging
+                    setTimeout(() => {
+                        this.peer._pc.getStats().then(stats => {
+                            let hostCandidates = 0, srflxCandidates = 0, relayCandidates = 0;
+                            stats.forEach(report => {
+                                if (report.type === 'local-candidate') {
+                                    switch (report.candidateType) {
+                                        case 'host': hostCandidates++; break;
+                                        case 'srflx': srflxCandidates++; break;
+                                        case 'relay': relayCandidates++; break;
+                                    }
+                                }
+                            });
+                            console.log('📊 ICE candidates summary:', {
+                                host: hostCandidates,
+                                serverReflexive: srflxCandidates,
+                                relay: relayCandidates
+                            });
+                            
+                            // If no relay candidates, warn about potential NAT issues
+                            if (relayCandidates === 0) {
+                                console.warn('⚠️ No TURN relay candidates - may have issues with cross-network connections');
+                            }
+                        }).catch(e => console.log('Could not analyze ICE candidates:', e));
+                    }, 1000);
+                }
             };
         }
     }
@@ -1177,7 +1305,7 @@ class SendAnywhereApp {    constructor() {
             this.showToast('Connection lost. Please try again.', 'warning');
         }
     }    handleConnectionFailure(message) {
-        console.error('🚨 Connection failure:', message);
+        console.error('Connection failure:', message);
         
         // Clear timeout
         if (this.connectionTimeout) {
@@ -1194,28 +1322,28 @@ class SendAnywhereApp {    constructor() {
             this.peer = null;
         }
         
-        // Always try server relay as fallback for cross-device transfers
-        console.log('🔄 Attempting server-relayed transfer as fallback');
-        this.showToast('WebRTC failed, using server relay...', 'info', 3000);
+        // Enhanced fallback for cross-device connections
+        console.log('Attempting server-relayed transfer as fallback for cross-device connection');
+        this.showToast('Direct connection failed. Using server relay...', 'info', 3000);
         
         // Update UI to show fallback mode
         const statusMessage = document.getElementById('status-message');
         const receiveMessage = document.getElementById('receive-message');
         
         if (statusMessage) {
-            statusMessage.textContent = 'Using fallback transfer method...';
-            statusMessage.className = 'status-transferring';
+            statusMessage.textContent = 'Using server relay for transfer...';
+            statusMessage.className = 'status-fallback';
         }
         
         if (receiveMessage) {
-            receiveMessage.textContent = 'Waiting for files via server...';
-            receiveMessage.className = 'status-waiting';
+            receiveMessage.textContent = 'Using server relay for transfer...';
+            receiveMessage.className = 'status-fallback';
         }
         
-        // Immediate fallback - don't wait
+        // Use server-relayed transfer as fallback
         setTimeout(() => {
             this.initiateServerRelayedTransfer();
-        }, 1000);
+        }, 2000);
     }
     
     startConnectionHeartbeat() {
@@ -1255,18 +1383,169 @@ class SendAnywhereApp {    constructor() {
         }
         
         this.heartbeatTimestamp = null;
-    }
-
-    initiateServerRelayedTransfer() {
+    }    initiateServerRelayedTransfer() {
         console.log('Starting server-relayed transfer');
         
         if (this.selectedFiles && this.selectedFiles.length > 0) {
-            this.showToast('Using server relay for transfer...', 'info');
+            // Sender side - upload files to server
+            console.log('Acting as sender - uploading files to server');
             this.sendFilesViaServer();
         } else {
-            this.showToast('Waiting for files via server...', 'info');
+            // Receiver side - request files from server
+            console.log('Acting as receiver - requesting files from server');
+            this.requestFilesFromServer();
         }
-    }    async sendFilesViaServer() {
+    }
+
+    async sendFilesViaServer() {
+        if (!this.selectedFiles.length || !this.currentCode) {
+            console.error('No files or code available for server relay');
+            return;
+        }
+        
+        console.log('Sending files via server relay');
+        
+        const statusMessage = document.getElementById('status-message');
+        if (statusMessage) {
+            statusMessage.textContent = 'Uploading files to server...';
+            statusMessage.className = 'status-uploading';
+        }
+        
+        try {
+            for (let i = 0; i < this.selectedFiles.length; i++) {
+                const file = this.selectedFiles[i];
+                console.log(`Uploading file ${i + 1}/${this.selectedFiles.length}: ${file.name}`);
+                
+                // Update progress
+                if (statusMessage) {
+                    statusMessage.textContent = `Uploading ${file.name} (${i + 1}/${this.selectedFiles.length})...`;
+                }
+                
+                const fileData = await this.fileToBase64(file);
+                
+                // Send file to server with transfer code
+                this.socket.emit('relay-file-upload', {
+                    code: this.currentCode,
+                    fileData: {
+                        name: file.name,
+                        size: file.size,
+                        type: file.type,
+                        lastModified: file.lastModified,
+                        data: fileData.data
+                    },
+                    fileIndex: i,
+                    totalFiles: this.selectedFiles.length
+                });
+                
+                // Add small delay to prevent overwhelming the server
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            // Send completion signal
+            this.socket.emit('relay-upload-complete', {
+                code: this.currentCode,
+                totalFiles: this.selectedFiles.length
+            });
+            
+            if (statusMessage) {
+                statusMessage.textContent = 'Files uploaded! Waiting for receiver...';
+                statusMessage.className = 'status-uploaded';
+            }
+            
+            this.showToast('Files uploaded to server. Ready for download!', 'success');
+            
+        } catch (error) {
+            console.error('Error uploading files to server:', error);
+            this.showToast('Upload failed: ' + error.message, 'error');
+            
+            if (statusMessage) {
+                statusMessage.textContent = 'Upload failed. Please try again.';
+                statusMessage.className = 'status-error';
+            }
+        }
+    }
+
+    requestFilesFromServer() {
+        if (!this.currentCode) {
+            console.error('No transfer code available for requesting files');
+            return;
+        }
+        
+        console.log('Requesting files from server for code:', this.currentCode);
+        
+        const receiveMessage = document.getElementById('receive-message');
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Downloading files from server...';
+            receiveMessage.className = 'status-downloading';
+        }
+        
+        // Request files from server
+        this.socket.emit('relay-file-request', {
+            code: this.currentCode
+        });
+        
+        // Listen for file downloads
+        this.socket.on('relay-file-download', (data) => {
+            console.log(`Receiving file: ${data.fileData.name}`);
+            this.handleServerRelayedFile(data);
+        });
+        
+        this.socket.on('relay-download-complete', (data) => {
+            console.log('All files received via server relay');
+            this.handleServerRelayComplete(data);
+        });
+        
+        this.socket.on('relay-error', (data) => {
+            console.error('Server relay error:', data.error);
+            this.showToast('Download failed: ' + data.error, 'error');
+            
+            if (receiveMessage) {
+                receiveMessage.textContent = 'Download failed. Please try again.';
+                receiveMessage.className = 'status-error';
+            }
+        });
+    }
+
+    handleServerRelayedFile(data) {
+        const { fileData, fileIndex, totalFiles } = data;
+        
+        console.log(`Processing relayed file ${fileIndex + 1}/${totalFiles}: ${fileData.name}`);
+        
+        // Update progress
+        const receiveMessage = document.getElementById('receive-message');
+        if (receiveMessage) {
+            receiveMessage.textContent = `Downloading ${fileData.name} (${fileIndex + 1}/${totalFiles})...`;
+        }
+        
+        // Store the file data for later download
+        if (!this.receivedFiles) {
+            this.receivedFiles = [];
+        }
+        
+        this.receivedFiles.push({
+            name: fileData.name,
+            size: fileData.size,
+            type: fileData.type,
+            data: fileData.data
+        });
+        
+        // Show partial progress
+        this.showToast(`Received ${fileData.name} (${fileIndex + 1}/${totalFiles})`, 'success', 2000);
+    }
+
+    handleServerRelayComplete(data) {
+        console.log('Server relay transfer completed');
+        
+        const receiveMessage = document.getElementById('receive-message');
+        if (receiveMessage) {
+            receiveMessage.textContent = `${this.receivedFiles.length} files downloaded successfully!`;
+            receiveMessage.className = 'status-complete';
+        }
+        
+        // Show download interface
+        this.showReceivedFiles();
+        this.showToast(`Transfer complete! ${this.receivedFiles.length} files received.`, 'success');
+    }async sendFilesViaServer() {
         if (!this.selectedFiles.length || !this.currentCode) {
             console.error('Cannot send files via server: no files or no code');
             return;
@@ -1515,9 +1794,7 @@ class SendAnywhereApp {    constructor() {
         });
         
         this.showToast('Files downloaded!', 'success');
-    }
-
-    joinTransfer() {
+    }    joinTransfer() {
         const codeInput = document.getElementById('receive-code-input');
         if (!codeInput) return;
         
@@ -1529,6 +1806,7 @@ class SendAnywhereApp {    constructor() {
         }
 
         this.isReceiver = true;
+        this.currentCode = code; // Store the code for server relay fallback
         this.socket.emit('join-room', { code });
         
         const receiveStatus = document.getElementById('receive-status');
