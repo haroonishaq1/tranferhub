@@ -1255,7 +1255,14 @@ class SendAnywhereApp {
         
         this.peer = new SimplePeer({
             initiator: initiator,
-            trickle: false
+            trickle: false,
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            },
+            objectMode: true
         });
 
         this.peer.on('signal', (signal) => {
@@ -1266,13 +1273,15 @@ class SendAnywhereApp {
             });
         });        this.peer.on('connect', () => {
             console.log('P2P connection established with', targetSocketId);
+            this.showToast('Connected! Starting transfer...', 'success');
             
             if (initiator) {
                 // Sender: start sending files
                 console.log('Starting file transfer as sender');
-                this.sendFiles();
+                setTimeout(() => this.sendFiles(), 500); // Small delay to ensure connection is stable
             } else {
                 console.log('Ready to receive files');
+                this.showToast('Ready to receive files...', 'info');
             }
         });
 
@@ -1282,7 +1291,22 @@ class SendAnywhereApp {
 
         this.peer.on('error', (err) => {
             console.error('Peer connection error:', err);
-            this.showToast('Connection failed. Please try again.', 'error');
+            this.showToast(`Connection error: ${err.message || 'Unknown error'}`, 'error');
+            
+            // Reset connection state
+            this.peer = null;
+            
+            // Update UI to show error state
+            const statusMessage = document.getElementById('status-message');
+            if (statusMessage) {
+                statusMessage.textContent = 'Connection failed. Please try again.';
+                statusMessage.className = 'status-error';
+            }
+        });
+
+        this.peer.on('close', () => {
+            console.log('Peer connection closed');
+            this.peer = null;
         });
     }
 
@@ -1296,7 +1320,12 @@ class SendAnywhereApp {
     }
 
     async sendFiles() {
-        if (!this.peer || !this.selectedFiles.length) return;
+        if (!this.peer || !this.selectedFiles.length) {
+            console.error('No peer connection or no files selected');
+            return;
+        }
+
+        console.log(`Starting to send ${this.selectedFiles.length} files`);
 
         const statusMessage = document.getElementById('status-message');
         const progressBar = document.getElementById('progress-bar');
@@ -1310,33 +1339,43 @@ class SendAnywhereApp {
             progressBar.classList.remove('hidden');
         }
 
-        let fileIndex = 0;
-        let totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
-        let sentSize = 0;
+        try {
+            // Send files one by one to avoid memory issues
+            let totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
+            let sentSize = 0;
 
-        // Check if we need to create a ZIP file
-        const zipFile = await this.createZipFile();
-        if (zipFile) {
-            // Send ZIP file metadata
+            // Send total files count first
             this.peer.send(JSON.stringify({
-                type: 'file-start',
-                name: zipFile.name,
-                size: zipFile.size,
-                type: zipFile.type
+                type: 'transfer-start',
+                totalFiles: this.selectedFiles.length,
+                totalSize: totalSize
             }));
 
-            // Read and send ZIP file in chunks
-            const chunkSize = 16384; // 16KB chunks
-            let offset = 0;
+            for (let i = 0; i < this.selectedFiles.length; i++) {
+                const file = this.selectedFiles[i];
+                console.log(`Sending file ${i + 1}/${this.selectedFiles.length}: ${file.name}`);
+                
+                // Send file metadata
+                this.peer.send(JSON.stringify({
+                    type: 'file-start',
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    index: i
+                }));
 
-            const sendChunk = () => {
-                const reader = new FileReader();
-                const slice = zipFile.slice(offset, offset + chunkSize);
+                // Send file in chunks
+                const chunkSize = 16384; // 16KB chunks
+                let offset = 0;
 
-                reader.onload = (e) => {
-                    this.peer.send(e.target.result);
-                    offset += chunkSize;
-                    sentSize += Math.min(chunkSize, zipFile.size - (offset - chunkSize));
+                while (offset < file.size) {
+                    const chunk = file.slice(offset, Math.min(offset + chunkSize, file.size));
+                    const arrayBuffer = await this.readFileAsArrayBuffer(chunk);
+                    
+                    // Send chunk
+                    this.peer.send(arrayBuffer);
+                    offset += chunk.size;
+                    sentSize += chunk.size;
 
                     // Update progress
                     const progress = (sentSize / totalSize) * 100;
@@ -1345,75 +1384,35 @@ class SendAnywhereApp {
                         progressFill.style.width = progress + '%';
                     }
 
-                    if (offset < zipFile.size) {
-                        sendChunk();
-                    } else {
-                        // ZIP file sent, now send individual files
-                        fileIndex = 0;
-                        sendNextFile();
-                    }
-                };
+                    // Small delay to prevent overwhelming the connection
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
 
-                reader.readAsArrayBuffer(slice);
-            };
+                // Send file end marker
+                this.peer.send(JSON.stringify({ 
+                    type: 'file-end',
+                    index: i
+                }));
 
-            sendChunk();
-        } else {
-            // No ZIP file created, send files individually
-            sendNextFile();
-        }
-
-        const sendNextFile = () => {
-            if (fileIndex >= this.selectedFiles.length) {
-                // All files sent
-                this.peer.send(JSON.stringify({ type: 'complete' }));
-                this.handleTransferComplete();
-                return;
+                console.log(`File ${i + 1} sent successfully`);
             }
 
-            const file = this.selectedFiles[fileIndex];
-            const chunkSize = 16384; // 16KB chunks
-            let offset = 0;
+            // Send completion marker
+            this.peer.send(JSON.stringify({ type: 'transfer-complete' }));
+            this.handleTransferComplete();
 
-            // Send file metadata
-            this.peer.send(JSON.stringify({
-                type: 'file-start',
-                name: file.name,
-                size: file.size,
-                type: file.type
-            }));
-
-            const sendChunk = () => {
-                const reader = new FileReader();
-                const slice = file.slice(offset, offset + chunkSize);
-
-                reader.onload = (e) => {
-                    this.peer.send(e.target.result);
-                    offset += chunkSize;
-                    sentSize += Math.min(chunkSize, file.size - (offset - chunkSize));
-
-                    // Update progress
-                    const progress = (sentSize / totalSize) * 100;
-                    const progressFill = document.querySelector('.progress-fill');
-                    if (progressFill) {
-                        progressFill.style.width = progress + '%';
-                    }
-
-                    if (offset < file.size) {
-                        sendChunk();
-                    } else {
-                        // File complete
-                        this.peer.send(JSON.stringify({ type: 'file-end' }));
-                        fileIndex++;
-                        sendNextFile();
-                    }
-                };
-
-                reader.readAsArrayBuffer(slice);
-            };
-
-            sendChunk();
-        };
+        } catch (error) {
+            console.error('Error during file transfer:', error);
+            this.showToast('File transfer failed: ' + error.message, 'error');
+            
+            // Send error to receiver
+            if (this.peer) {
+                this.peer.send(JSON.stringify({ 
+                    type: 'transfer-error',
+                    message: error.message
+                }));
+            }
+        }
     }
 
     handleIncomingData(data) {
