@@ -43,16 +43,16 @@ class SendAnywhereApp {
         const hostname = window.location.hostname;
         let port = window.location.port;
         
-        // If we're on port 8000 (frontend), connect to backend on 5000
-        // If we're on port 5000 (backend serving frontend), connect to same port
+        // If we're on port 8000 (frontend), connect to backend on 3001
+        // If we're on port 3001 (backend serving frontend), connect to same port
         let serverUrl;
         if (port === '8000') {
-            serverUrl = `http://${hostname}:5000`;
-        } else if (port === '5000' || !port) {
-            serverUrl = `http://${hostname}:5000`;
+            serverUrl = `http://${hostname}:3001`;
+        } else if (port === '3001' || !port) {
+            serverUrl = `http://${hostname}:3001`;
         } else {
             // Default fallback
-            serverUrl = 'http://localhost:5000';
+            serverUrl = 'http://localhost:3001';
         }
         
         console.log(`Connecting to socket server at: ${serverUrl}`);
