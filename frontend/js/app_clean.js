@@ -1,6 +1,5 @@
 // SendAnywhere Clone - Frontend JavaScript
-class SendAnywhereApp {
-    constructor() {
+class SendAnywhereApp {    constructor() {
         this.socket = null;
         this.peer = null;
         this.selectedFiles = [];
@@ -13,6 +12,12 @@ class SendAnywhereApp {
         this.currentPageIndex = 0;
         this.totalPages = 1;
         this.previewData = null;
+        
+        // Connection monitoring properties
+        this.connectionTimeout = null;
+        this.heartbeatInterval = null;
+        this.heartbeatTimeoutChecker = null;
+        this.heartbeatTimestamp = null;
         
         this.init();
     }
@@ -944,23 +949,24 @@ class SendAnywhereApp {
         }
         
         this.showToast('Connected to sender!', 'success');
-    }
-
-    initPeerConnection(initiator, targetSocketId) {
+    }    initPeerConnection(initiator, targetSocketId) {
         console.log(`Initializing peer connection - Initiator: ${initiator}, Target: ${targetSocketId}, My ID: ${this.socket.id}`);
         
-        // Enhanced ICE server configuration for production environments
+        // Enhanced ICE server configuration with multiple STUN and TURN servers
         const iceServers = [
             // Google STUN servers
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
             { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' },
             
             // Additional STUN servers for better connectivity
             { urls: 'stun:stun.stunprotocol.org:3478' },
             { urls: 'stun:stun.voiparound.com' },
+            { urls: 'stun:stun.voipbuster.com' },
             
-            // Free TURN servers for NAT traversal in production
+            // Multiple free TURN servers for better reliability
             {
                 urls: 'turn:openrelay.metered.ca:80',
                 username: 'openrelayproject',
@@ -975,10 +981,16 @@ class SendAnywhereApp {
                 urls: 'turn:openrelay.metered.ca:443?transport=tcp',
                 username: 'openrelayproject',
                 credential: 'openrelayproject'
+            },
+            // Alternative free TURN servers
+            {
+                urls: 'turn:relay1.expressturn.com:3478',
+                username: 'efJBIBVP6ETOFD3XKX',
+                credential: 'WmtzanB3ZnpERzRYVw'
             }
         ];
 
-        console.log('Using ICE servers for production:', iceServers.length, 'servers configured');
+        console.log('Using ICE servers:', iceServers.length, 'servers configured');
 
         // Check if SimplePeer is available
         if (typeof SimplePeer === 'undefined') {
@@ -989,28 +1001,41 @@ class SendAnywhereApp {
 
         this.peer = new SimplePeer({
             initiator: initiator,
-            trickle: true,
+            trickle: true, // Enable trickle ICE for better connectivity
             config: {
                 iceServers: iceServers,
                 iceCandidatePoolSize: 10,
-                iceTransportPolicy: 'all'
+                iceTransportPolicy: 'all' // Use all available transport types
             },
             objectMode: true,
             allowHalfTrickle: true,
-            iceCompleteTimeout: 60000, // Longer timeout for production
+            iceCompleteTimeout: 30000, // 30 seconds timeout for ICE completion
             offerOptions: {
                 offerToReceiveAudio: false,
                 offerToReceiveVideo: false
             }
         });
         
-        // Set connection timeout
+        // Set connection timeout with better error handling
         this.connectionTimeout = setTimeout(() => {
             if (this.peer && !this.peer.connected) {
-                console.error('Connection timeout after 60 seconds');
-                this.handleConnectionFailure('Connection timeout - trying fallback method...');
+                console.error('Connection timeout after 30 seconds');
+                console.log('Peer state:', {
+                    connected: this.peer.connected,
+                    connecting: this.peer.connecting,
+                    destroyed: this.peer.destroyed
+                });
+                
+                // Try to get more detailed connection info
+                if (this.peer._pc) {
+                    console.log('WebRTC connection state:', this.peer._pc.connectionState);
+                    console.log('ICE connection state:', this.peer._pc.iceConnectionState);
+                    console.log('ICE gathering state:', this.peer._pc.iceGatheringState);
+                }
+                
+                this.handleConnectionFailure('Connection timeout - peer connection could not be established');
             }
-        }, 60000);
+        }, 30000);
 
         this.peer.on('signal', (signal) => {
             console.log(`Sending signal to ${targetSocketId}`, signal.type);
@@ -1023,6 +1048,7 @@ class SendAnywhereApp {
         this.peer.on('connect', () => {
             console.log('P2P connection established with', targetSocketId);
             
+            // Clear connection timeout
             if (this.connectionTimeout) {
                 clearTimeout(this.connectionTimeout);
                 this.connectionTimeout = null;
@@ -1030,9 +1056,13 @@ class SendAnywhereApp {
             
             this.showToast('Connected! Starting transfer...', 'success');
             
+            // Start connection heartbeat to monitor connection health
+            this.startConnectionHeartbeat();
+            
             if (initiator) {
+                // Sender: start sending files
                 console.log('Starting file transfer as sender');
-                setTimeout(() => this.sendFiles(), 500);
+                setTimeout(() => this.sendFiles(), 500); // Small delay to ensure connection is stable
             } else {
                 console.log('Ready to receive files');
                 this.showToast('Ready to receive files...', 'info');
@@ -1054,6 +1084,10 @@ class SendAnywhereApp {
                 clearTimeout(this.connectionTimeout);
                 this.connectionTimeout = null;
             }
+            
+            // Stop heartbeat
+            this.stopConnectionHeartbeat();
+            
             this.peer = null;
         });
         
@@ -1064,10 +1098,39 @@ class SendAnywhereApp {
                 console.log('ICE connection state:', state);
                 
                 if (state === 'failed') {
-                    console.error('ICE connection failed - using fallback method');
-                    this.handleConnectionFailure('Network connection failed - trying server relay...');
+                    console.error('ICE connection failed - this usually indicates NAT/firewall issues');
+                    this.handleConnectionFailure('Network connection failed - NAT/firewall may be blocking connection');
+                } else if (state === 'disconnected') {
+                    console.warn('ICE connection disconnected - connection may be unstable');
+                    // Don't immediately fail on disconnected, give it time to reconnect
+                    setTimeout(() => {
+                        if (this.peer && this.peer._pc && this.peer._pc.iceConnectionState === 'disconnected') {
+                            this.handleConnectionFailure('Network connection lost');
+                        }
+                    }, 5000);
                 } else if (state === 'connected' || state === 'completed') {
                     console.log('ICE connection established successfully');
+                }
+            };
+            
+            this.peer._pc.onconnectionstatechange = () => {
+                const state = this.peer._pc.connectionState;
+                console.log('Peer connection state:', state);
+                
+                if (state === 'failed') {
+                    console.error('Peer connection failed');
+                    this.handleConnectionFailure('Peer connection failed');
+                } else if (state === 'connected') {
+                    console.log('Peer connection fully established');
+                }
+            };
+            
+            // Add ICE candidate logging
+            this.peer._pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    console.log('ICE candidate type:', event.candidate.type);
+                } else {
+                    console.log('ICE gathering complete');
                 }
             };
         }
@@ -1087,28 +1150,91 @@ class SendAnywhereApp {
             console.warn('Received signal but no peer connection exists');
             this.showToast('Connection lost. Please try again.', 'warning');
         }
-    }
-
-    handleConnectionFailure(message) {
+    }    handleConnectionFailure(message) {
         console.error('Connection failure:', message);
         
+        // Clear timeout
         if (this.connectionTimeout) {
             clearTimeout(this.connectionTimeout);
             this.connectionTimeout = null;
         }
         
+        // Stop heartbeat
+        this.stopConnectionHeartbeat();
+        
+        // Clean up peer
         if (this.peer) {
             this.peer.destroy();
             this.peer = null;
         }
         
-        // Try server-relayed transfer as fallback
-        console.log('Attempting server-relayed transfer as fallback');
-        this.showToast('P2P failed, trying server-relay method...', 'info', 3000);
+        // For testing: if this is a local/same-origin transfer, use fallback
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            console.log('Detected local environment, attempting fallback transfer method');
+            this.showToast('WebRTC failed, using fallback method...', 'info', 3000);
+            
+            // Use server-relayed transfer as fallback
+            setTimeout(() => {
+                this.initiateServerRelayedTransfer();
+            }, 2000);
+            return;
+        }
         
-        setTimeout(() => {
-            this.initiateServerRelayedTransfer();
-        }, 2000);
+        // Show user-friendly error message
+        this.showToast(`Connection failed: ${message}. Please try again.`, 'error', 5000);
+        
+        // Update UI to show error state
+        const statusMessage = document.getElementById('status-message');
+        const receiveMessage = document.getElementById('receive-message');
+        
+        if (statusMessage) {
+            statusMessage.textContent = 'Connection failed. Please try again.';
+            statusMessage.className = 'status-error';
+        }
+        
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Connection failed. Please try again.';
+            receiveMessage.className = 'status-error';
+        }
+    }
+    
+    startConnectionHeartbeat() {
+        // Send periodic heartbeat messages to check connection health
+        this.heartbeatInterval = setInterval(() => {
+            if (this.peer && this.peer.connected) {
+                try {
+                    this.heartbeatTimestamp = Date.now();
+                    this.peer.send(JSON.stringify({ type: 'heartbeat', timestamp: this.heartbeatTimestamp }));
+                } catch (error) {
+                    console.warn('Heartbeat failed:', error);
+                    this.handleConnectionFailure('Connection lost during heartbeat');
+                }
+            } else {
+                this.stopConnectionHeartbeat();
+            }
+        }, 10000); // Send heartbeat every 10 seconds
+        
+        // Set up heartbeat timeout checker
+        this.heartbeatTimeoutChecker = setInterval(() => {
+            if (this.heartbeatTimestamp && (Date.now() - this.heartbeatTimestamp) > 30000) {
+                console.warn('Heartbeat timeout - no response received');
+                this.handleConnectionFailure('Connection timeout - no heartbeat response');
+            }
+        }, 15000); // Check every 15 seconds
+    }
+    
+    stopConnectionHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
+        
+        if (this.heartbeatTimeoutChecker) {
+            clearInterval(this.heartbeatTimeoutChecker);
+            this.heartbeatTimeoutChecker = null;
+        }
+        
+        this.heartbeatTimestamp = null;
     }
 
     initiateServerRelayedTransfer() {
@@ -1120,25 +1246,77 @@ class SendAnywhereApp {
         } else {
             this.showToast('Waiting for files via server...', 'info');
         }
-    }
-
-    sendFilesViaServer() {
-        if (!this.selectedFiles.length || !this.currentCode) return;
+    }    async sendFilesViaServer() {
+        if (!this.selectedFiles.length || !this.currentCode) {
+            console.error('Cannot send files via server: no files or no code');
+            return;
+        }
         
         console.log('Sending files via server relay');
         
-        Promise.all(this.selectedFiles.map(file => this.fileToBase64(file)))
-            .then(files => {
-                this.socket.emit('relay-transfer', {
-                    code: this.currentCode,
-                    files: files
+        const statusMessage = document.getElementById('status-message');
+        if (statusMessage) {
+            statusMessage.textContent = 'Using fallback transfer method...';
+            statusMessage.className = 'status-transferring';
+        }
+        
+        try {
+            // Convert files to base64 and send via socket
+            const fileData = [];
+            
+            for (const file of this.selectedFiles) {
+                const arrayBuffer = await this.readFileAsArrayBuffer(file);
+                const base64 = this.arrayBufferToBase64(arrayBuffer);
+                
+                fileData.push({
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    data: base64
                 });
-                this.showToast('Files sent via server!', 'success');
-            })
-            .catch(error => {
-                console.error('Error preparing files for server transfer:', error);
-                this.showToast('Failed to prepare files for transfer', 'error');
+            }
+            
+            // Send files via socket
+            this.socket.emit('relay-transfer', {
+                code: this.currentCode,
+                files: fileData
             });
+            
+            this.showToast('Files sent via server relay!', 'success');
+            
+            // Update status
+            if (statusMessage) {
+                statusMessage.textContent = 'Files sent successfully!';
+                statusMessage.className = 'status-completed';
+            }
+            
+        } catch (error) {
+            console.error('Error sending files via server:', error);
+            this.showToast('Failed to send files via server relay', 'error');
+            
+            if (statusMessage) {
+                statusMessage.textContent = 'Transfer failed. Please try again.';
+                statusMessage.className = 'status-error';
+            }
+        }
+    }
+    
+    readFileAsArrayBuffer(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(file);
+        });
+    }
+    
+    arrayBufferToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return 'data:application/octet-stream;base64,' + btoa(binary);
     }
 
     fileToBase64(file) {
@@ -1222,29 +1400,48 @@ class SendAnywhereApp {
         };
 
         reader.readAsDataURL(file);
-    }
-
-    handleIncomingData(data) {
+    }    handleIncomingData(data) {
         try {
-            const parsedData = JSON.parse(data);
+            // Try to parse as JSON (metadata)
+            const message = JSON.parse(data);
             
-            switch (parsedData.type) {
+            const receiveMessage = document.getElementById('receive-message');
+            const receiveProgressBar = document.getElementById('receive-progress-bar');
+            
+            switch (message.type) {
+                case 'heartbeat':
+                    // Respond to heartbeat to confirm connection is alive
+                    if (this.peer && this.peer.connected) {
+                        try {
+                            this.peer.send(JSON.stringify({ type: 'heartbeat-response', timestamp: Date.now() }));
+                        } catch (error) {
+                            console.warn('Failed to respond to heartbeat:', error);
+                        }
+                    }
+                    break;
+                    
+                case 'heartbeat-response':
+                    // Connection is alive, reset heartbeat timestamp
+                    console.log('Heartbeat response received, connection is healthy');
+                    this.heartbeatTimestamp = null; // Reset timeout tracker
+                    break;
+                    
                 case 'metadata':
-                    console.log('Received file metadata:', parsedData.files);
+                    console.log('Received file metadata:', message.files);
                     this.receivedFiles = [];
-                    this.expectedFiles = parsedData.files;
-                    this.showToast(`Receiving ${parsedData.totalFiles} file(s)...`, 'info');
+                    this.expectedFiles = message.files;
+                    this.showToast(`Receiving ${message.totalFiles} file(s)...`, 'info');
                     break;
                     
                 case 'file':
-                    console.log(`Received file: ${parsedData.name}`);
+                    console.log(`Received file: ${message.name}`);
                     this.receivedFiles.push({
-                        name: parsedData.name,
-                        size: parsedData.size,
-                        data: parsedData.data
+                        name: message.name,
+                        size: message.size,
+                        data: message.data
                     });
                     
-                    this.showToast(`Received: ${parsedData.name}`, 'success');
+                    this.showToast(`Received: ${message.name}`, 'success');
                     break;
                     
                 case 'complete':
@@ -1252,6 +1449,9 @@ class SendAnywhereApp {
                     this.showReceivedFiles();
                     this.showToast('All files received!', 'success');
                     break;
+                    
+                default:
+                    console.log('Unknown message type:', message.type);
             }
         } catch (error) {
             console.error('Error processing incoming data:', error);
@@ -1445,14 +1645,31 @@ class SendAnywhereApp {
             receiveMessage.className = 'status-error';
         }
     }
-    
-    handleRelayTransfer(data) {
+      handleRelayTransfer(data) {
         console.log('Received relay transfer:', data);
         
         if (data.files && data.files.length > 0) {
-            this.receivedFiles = data.files;
+            // Convert the received files to the proper format
+            this.receivedFiles = data.files.map(file => ({
+                name: file.name,
+                size: file.size,
+                type: file.type || 'application/octet-stream',
+                data: file.data
+            }));
+            
+            // Update UI to show received files
             this.showReceivedFiles();
-            this.showToast('Files received via server!', 'success');
+            this.showToast('Files received via server relay!', 'success');
+            
+            // Update receiver status
+            const receiveMessage = document.getElementById('receive-message');
+            if (receiveMessage) {
+                receiveMessage.textContent = 'Files received successfully!';
+                receiveMessage.className = 'status-completed';
+            }
+        } else {
+            console.warn('No files in relay transfer data');
+            this.showToast('No files received in server relay', 'warning');
         }
     }
     
