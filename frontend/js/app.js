@@ -37,24 +37,34 @@ class SendAnywhereApp {
         }
     }
 
-    connectSocket() {
-        // Dynamically determine the server URL based on current location
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    getServerUrl() {
+        const protocol = window.location.protocol;
         const hostname = window.location.hostname;
         let port = window.location.port;
         
-        // If we're on port 8000 (frontend), connect to backend on 3001
-        // If we're on port 3001 (backend serving frontend), connect to same port
-        let serverUrl;
-        if (port === '8000') {
-            serverUrl = `http://${hostname}:3001`;
-        } else if (port === '3001' || !port) {
-            serverUrl = `http://${hostname}:3001`;
-        } else {
-            // Default fallback
-            serverUrl = 'http://localhost:3001';
+        // Production environment (Render or similar)
+        if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+            return `${protocol}//${hostname}${port ? ':' + port : ''}`;
+        } 
+        // Local development
+        else {
+            if (port === '8000') {
+                return `http://${hostname}:3001`;
+            } else {
+                return `http://${hostname}:3001`;
+            }
         }
+    }
+
+    connectSocket() {
+        // Dynamically determine the server URL based on current environment
+        const protocol = window.location.protocol;
+        const hostname = window.location.hostname;
+        let port = window.location.port;
         
+        let serverUrl = this.getServerUrl();
+        
+        console.log(`Environment: ${hostname !== 'localhost' && hostname !== '127.0.0.1' ? 'Production' : 'Development'}`);
         console.log(`Connecting to socket server at: ${serverUrl}`);
         
         this.socket = io(serverUrl, {
@@ -1560,7 +1570,7 @@ class SendAnywhereApp {
         
         // Log transfer stats
         const totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
-        fetch('http://localhost:3001/api/files/log-transfer', {
+        fetch(`${this.getServerUrl()}/api/files/log-transfer`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
