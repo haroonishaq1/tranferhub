@@ -20,5 +20,3 @@ services:
   - type: pserv
     name: tranferhub-db
     plan: free
-    databaseName: sendanywhere_clone
-    databaseUser: postgres
