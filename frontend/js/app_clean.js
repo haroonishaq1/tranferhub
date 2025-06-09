@@ -35,17 +35,16 @@ class SendAnywhereApp {
                 this.showToast('PDF preview may not work properly - PDF.js library not loaded', 'warning');
             }, 2000);
         }
-    }
-
-    connectSocket() {        // Dynamically determine the server URL based on current environment
+    }    connectSocket() {
+        // Dynamically determine the server URL based on current environment
         const protocol = window.location.protocol;
         const hostname = window.location.hostname;
         let port = window.location.port;
         
         let serverUrl;
         
-        // Production environment (Render or similar)
-        if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+        // Production environment (any non-localhost hostname)
+        if (hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '0.0.0.0') {
             // In production, the frontend is served by the same server
             serverUrl = `${protocol}//${hostname}${port ? ':' + port : ''}`;
         } 
@@ -63,16 +62,19 @@ class SendAnywhereApp {
             }
         }
         
-        console.log(`Environment: ${hostname !== 'localhost' && hostname !== '127.0.0.1' ? 'Production' : 'Development'}`);
+        console.log(`Environment: ${hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '0.0.0.0' ? 'Production' : 'Development'}`);
+        console.log(`Current hostname: ${hostname}, port: ${port}`);
         console.log(`Connecting to socket server at: ${serverUrl}`);
-        
-        this.socket = io(serverUrl, {
+          this.socket = io(serverUrl, {
             reconnection: true,
             reconnectionDelay: 1000,
-            reconnectionAttempts: 5,
-            timeout: 20000,
-            forceNew: true
-        });        
+            reconnectionAttempts: 10,
+            timeout: 30000,
+            forceNew: true,
+            transports: ['websocket', 'polling'], // Try websocket first, fallback to polling
+            upgrade: true,
+            rememberUpgrade: true
+        });
         
         this.socket.on('connect', () => {
             console.log('Connected to server with socket ID:', this.socket.id);
@@ -116,10 +118,22 @@ class SendAnywhereApp {
 
         this.socket.on('joined-room', (data) => {
             this.handleJoinedRoom(data);
-        });
-
-        this.socket.on('signal', (data) => {
+        });        this.socket.on('signal', (data) => {
             this.handleSignal(data);
+        });
+        
+        // Add missing socket event handlers for production
+        this.socket.on('peer-disconnected', (data) => {
+            this.handlePeerDisconnected(data);
+        });
+        
+        this.socket.on('code-expired', (data) => {
+            this.showToast('Transfer code expired', 'warning');
+            this.resetTransfer();
+        });
+        
+        this.socket.on('relay-transfer', (data) => {
+            this.handleRelayTransfer(data);
         });
     }
 
@@ -891,17 +905,420 @@ class SendAnywhereApp {
         `;
         
         this.showToast(infoHtml, 'info', 5000);
-    }
-
-    // Other existing methods...
+    }    // Other existing methods...
     handleReceiverJoined(data) {
         console.log(`Receiver joined: ${data.receiverSocketId}, my socket ID: ${this.socket.id}`);
-        // Implementation continues...
+        const statusMessage = document.getElementById('status-message');
+        if (statusMessage) {
+            statusMessage.textContent = 'Receiver connected! Establishing connection...';
+            statusMessage.className = 'status-connected';
+        }
+        
+        // Check if this is a self-connection (same socket)
+        if (data.receiverSocketId === this.socket.id) {
+            console.log('Self-connection detected, simulating local transfer');
+            this.simulateLocalTransfer();
+        } else {
+            console.log(`Initiating P2P connection to receiver: ${data.receiverSocketId}`);
+            this.initPeerConnection(true, data.receiverSocketId);
+        }
+        
+        this.showToast('Receiver joined! Starting transfer...', 'success');
     }
 
     handleJoinedRoom(data) {
         console.log(`Joined room with sender: ${data.senderSocketId}, my socket ID: ${this.socket.id}`);
-        // Implementation continues...
+        const receiveMessage = document.getElementById('receive-message');
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Connected! Waiting for files...';
+            receiveMessage.className = 'status-connected';
+        }
+        
+        // Check if this is a self-connection (same socket)
+        if (data.senderSocketId === this.socket.id) {
+            console.log('Self-connection detected, simulating local transfer');
+            this.simulateLocalTransfer();
+        } else {
+            console.log(`Initiating P2P connection to sender: ${data.senderSocketId}`);
+            this.initPeerConnection(false, data.senderSocketId);
+        }
+        
+        this.showToast('Connected to sender!', 'success');
+    }
+
+    initPeerConnection(initiator, targetSocketId) {
+        console.log(`Initializing peer connection - Initiator: ${initiator}, Target: ${targetSocketId}, My ID: ${this.socket.id}`);
+        
+        // Enhanced ICE server configuration for production environments
+        const iceServers = [
+            // Google STUN servers
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            
+            // Additional STUN servers for better connectivity
+            { urls: 'stun:stun.stunprotocol.org:3478' },
+            { urls: 'stun:stun.voiparound.com' },
+            
+            // Free TURN servers for NAT traversal in production
+            {
+                urls: 'turn:openrelay.metered.ca:80',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            }
+        ];
+
+        console.log('Using ICE servers for production:', iceServers.length, 'servers configured');
+
+        // Check if SimplePeer is available
+        if (typeof SimplePeer === 'undefined') {
+            console.error('SimplePeer not loaded, falling back to server relay');
+            this.handleConnectionFailure('WebRTC not available, using server relay');
+            return;
+        }
+
+        this.peer = new SimplePeer({
+            initiator: initiator,
+            trickle: true,
+            config: {
+                iceServers: iceServers,
+                iceCandidatePoolSize: 10,
+                iceTransportPolicy: 'all'
+            },
+            objectMode: true,
+            allowHalfTrickle: true,
+            iceCompleteTimeout: 60000, // Longer timeout for production
+            offerOptions: {
+                offerToReceiveAudio: false,
+                offerToReceiveVideo: false
+            }
+        });
+        
+        // Set connection timeout
+        this.connectionTimeout = setTimeout(() => {
+            if (this.peer && !this.peer.connected) {
+                console.error('Connection timeout after 60 seconds');
+                this.handleConnectionFailure('Connection timeout - trying fallback method...');
+            }
+        }, 60000);
+
+        this.peer.on('signal', (signal) => {
+            console.log(`Sending signal to ${targetSocketId}`, signal.type);
+            this.socket.emit('signal', {
+                to: targetSocketId,
+                signal: signal
+            });
+        });
+
+        this.peer.on('connect', () => {
+            console.log('P2P connection established with', targetSocketId);
+            
+            if (this.connectionTimeout) {
+                clearTimeout(this.connectionTimeout);
+                this.connectionTimeout = null;
+            }
+            
+            this.showToast('Connected! Starting transfer...', 'success');
+            
+            if (initiator) {
+                console.log('Starting file transfer as sender');
+                setTimeout(() => this.sendFiles(), 500);
+            } else {
+                console.log('Ready to receive files');
+                this.showToast('Ready to receive files...', 'info');
+            }
+        });
+
+        this.peer.on('data', (data) => {
+            this.handleIncomingData(data);
+        });
+
+        this.peer.on('error', (err) => {
+            console.error('Peer connection error:', err);
+            this.handleConnectionFailure(err.message || 'Connection error');
+        });
+
+        this.peer.on('close', () => {
+            console.log('Peer connection closed');
+            if (this.connectionTimeout) {
+                clearTimeout(this.connectionTimeout);
+                this.connectionTimeout = null;
+            }
+            this.peer = null;
+        });
+        
+        // Monitor ICE connection state
+        if (this.peer._pc) {
+            this.peer._pc.oniceconnectionstatechange = () => {
+                const state = this.peer._pc.iceConnectionState;
+                console.log('ICE connection state:', state);
+                
+                if (state === 'failed') {
+                    console.error('ICE connection failed - using fallback method');
+                    this.handleConnectionFailure('Network connection failed - trying server relay...');
+                } else if (state === 'connected' || state === 'completed') {
+                    console.log('ICE connection established successfully');
+                }
+            };
+        }
+    }
+
+    handleSignal(data) {
+        console.log(`Received signal from ${data.from}:`, data.signal.type);
+        if (this.peer) {
+            try {
+                this.peer.signal(data.signal);
+                console.log('Signal processed successfully');
+            } catch (error) {
+                console.error('Error processing signal:', error);
+                this.handleConnectionFailure('Signal processing failed');
+            }
+        } else {
+            console.warn('Received signal but no peer connection exists');
+            this.showToast('Connection lost. Please try again.', 'warning');
+        }
+    }
+
+    handleConnectionFailure(message) {
+        console.error('Connection failure:', message);
+        
+        if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+        }
+        
+        if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+        }
+        
+        // Try server-relayed transfer as fallback
+        console.log('Attempting server-relayed transfer as fallback');
+        this.showToast('P2P failed, trying server-relay method...', 'info', 3000);
+        
+        setTimeout(() => {
+            this.initiateServerRelayedTransfer();
+        }, 2000);
+    }
+
+    initiateServerRelayedTransfer() {
+        console.log('Starting server-relayed transfer');
+        
+        if (this.selectedFiles && this.selectedFiles.length > 0) {
+            this.showToast('Using server relay for transfer...', 'info');
+            this.sendFilesViaServer();
+        } else {
+            this.showToast('Waiting for files via server...', 'info');
+        }
+    }
+
+    sendFilesViaServer() {
+        if (!this.selectedFiles.length || !this.currentCode) return;
+        
+        console.log('Sending files via server relay');
+        
+        Promise.all(this.selectedFiles.map(file => this.fileToBase64(file)))
+            .then(files => {
+                this.socket.emit('relay-transfer', {
+                    code: this.currentCode,
+                    files: files
+                });
+                this.showToast('Files sent via server!', 'success');
+            })
+            .catch(error => {
+                console.error('Error preparing files for server transfer:', error);
+                this.showToast('Failed to prepare files for transfer', 'error');
+            });
+    }
+
+    fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                resolve({
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    data: reader.result
+                });
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    simulateLocalTransfer() {
+        console.log('Simulating local transfer for self-connection');
+        this.showToast('Local transfer mode activated', 'info');
+        
+        setTimeout(() => {
+            if (this.selectedFiles.length > 0) {
+                this.receivedFiles = [...this.selectedFiles];
+                this.showReceivedFiles();
+                this.showToast('Local transfer completed!', 'success');
+            }
+        }, 1000);
+    }
+
+    sendFiles() {
+        if (!this.peer || !this.selectedFiles.length) {
+            console.error('Cannot send files: no peer connection or no files selected');
+            return;
+        }
+
+        console.log('Starting file transfer via P2P');
+        
+        const fileMetadata = this.selectedFiles.map(file => ({
+            name: file.name,
+            size: file.size,
+            type: file.type
+        }));
+
+        this.peer.send(JSON.stringify({
+            type: 'metadata',
+            files: fileMetadata,
+            totalFiles: this.selectedFiles.length
+        }));
+
+        this.sendFileAtIndex(0);
+    }
+
+    sendFileAtIndex(index) {
+        if (index >= this.selectedFiles.length) {
+            console.log('All files sent successfully');
+            this.peer.send(JSON.stringify({ type: 'complete' }));
+            this.showToast('All files sent successfully!', 'success');
+            return;
+        }
+
+        const file = this.selectedFiles[index];
+        console.log(`Sending file ${index + 1}/${this.selectedFiles.length}: ${file.name}`);
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            const fileData = {
+                type: 'file',
+                index: index,
+                name: file.name,
+                size: file.size,
+                data: reader.result
+            };
+
+            this.peer.send(JSON.stringify(fileData));
+            
+            setTimeout(() => {
+                this.sendFileAtIndex(index + 1);
+            }, 100);
+        };
+
+        reader.readAsDataURL(file);
+    }
+
+    handleIncomingData(data) {
+        try {
+            const parsedData = JSON.parse(data);
+            
+            switch (parsedData.type) {
+                case 'metadata':
+                    console.log('Received file metadata:', parsedData.files);
+                    this.receivedFiles = [];
+                    this.expectedFiles = parsedData.files;
+                    this.showToast(`Receiving ${parsedData.totalFiles} file(s)...`, 'info');
+                    break;
+                    
+                case 'file':
+                    console.log(`Received file: ${parsedData.name}`);
+                    this.receivedFiles.push({
+                        name: parsedData.name,
+                        size: parsedData.size,
+                        data: parsedData.data
+                    });
+                    
+                    this.showToast(`Received: ${parsedData.name}`, 'success');
+                    break;
+                    
+                case 'complete':
+                    console.log('Transfer completed');
+                    this.showReceivedFiles();
+                    this.showToast('All files received!', 'success');
+                    break;
+            }
+        } catch (error) {
+            console.error('Error processing incoming data:', error);
+        }
+    }
+
+    showReceivedFiles() {
+        console.log('Showing received files:', this.receivedFiles.length);
+        
+        const receiveStatus = document.getElementById('receive-status');
+        const selectedFilesSection = document.getElementById('selected-files-section');
+        
+        if (receiveStatus) receiveStatus.classList.add('hidden');
+        if (selectedFilesSection) selectedFilesSection.classList.remove('hidden');
+        
+        this.selectedFiles = this.receivedFiles.map(file => ({
+            name: file.name,
+            size: file.size,
+            type: file.type || 'application/octet-stream'
+        }));
+        
+        this.showSelectedFileDetails();
+        
+        const downloadBtn = document.getElementById('download-all-btn');
+        if (downloadBtn) {
+            downloadBtn.classList.remove('hidden');
+            downloadBtn.style.display = 'block';
+        }
+    }
+
+    downloadAllFiles() {
+        console.log('Downloading all received files');
+        
+        this.receivedFiles.forEach(file => {
+            const link = document.createElement('a');
+            link.href = file.data;
+            link.download = file.name;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+        
+        this.showToast('Files downloaded!', 'success');
+    }
+
+    joinTransfer() {
+        const codeInput = document.getElementById('receive-code-input');
+        if (!codeInput) return;
+        
+        const code = codeInput.value.trim();
+        
+        if (code.length !== 6) {
+            this.showToast('Please enter a 6-digit code', 'warning');
+            return;
+        }
+
+        this.isReceiver = true;
+        this.socket.emit('join-room', { code });
+        
+        const receiveStatus = document.getElementById('receive-status');
+        const receiveMessage = document.getElementById('receive-message');
+        
+        if (receiveStatus) receiveStatus.classList.remove('hidden');
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Connecting...';
+            receiveMessage.className = 'status-waiting';
+        }
     }
 
     formatFileSize(bytes) {
@@ -996,8 +1413,57 @@ class SendAnywhereApp {
             this.peer.destroy();
             this.peer = null;
         }
+          console.log('Transfer reset completed');
+    }
+    
+    // Additional production-specific methods
+    handlePeerDisconnected(data) {
+        console.warn('Peer disconnected:', data.socketId);
         
-        console.log('Transfer reset completed');
+        if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+        }
+        
+        if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+        }
+        
+        this.showToast('The other user disconnected. Please try again.', 'warning', 5000);
+        
+        const statusMessage = document.getElementById('status-message');
+        const receiveMessage = document.getElementById('receive-message');
+        
+        if (statusMessage) {
+            statusMessage.textContent = 'Connection lost. Please try again.';
+            statusMessage.className = 'status-error';
+        }
+        
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Connection lost. Please try again.';
+            receiveMessage.className = 'status-error';
+        }
+    }
+    
+    handleRelayTransfer(data) {
+        console.log('Received relay transfer:', data);
+        
+        if (data.files && data.files.length > 0) {
+            this.receivedFiles = data.files;
+            this.showReceivedFiles();
+            this.showToast('Files received via server!', 'success');
+        }
+    }
+    
+    // Add debug method for testing
+    debugFileSelection() {
+        console.log('=== DEBUG FILE SELECTION ===');
+        console.log('Selected Files:', this.selectedFiles);
+        console.log('Current Code:', this.currentCode);
+        console.log('Is Receiver:', this.isReceiver);
+        console.log('Socket Connected:', this.socket?.connected);
+        console.log('Peer Connected:', this.peer?.connected);
     }
 }
 
