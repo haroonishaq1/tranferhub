@@ -3,13 +3,24 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT
-});
+// Database connection - Support both individual env vars and DATABASE_URL (for Render)
+let pool;
+if (process.env.DATABASE_URL) {
+  // Render provides DATABASE_URL
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  });
+} else {
+  // Local development with individual env vars
+  pool = new Pool({
+    user: process.env.DB_USER,
+    host: process.env.DB_HOST,
+    database: process.env.DB_NAME,
+    password: process.env.DB_PASSWORD,
+    port: process.env.DB_PORT
+  });
+}
 
 const setupDatabase = async () => {
   try {

@@ -7,7 +7,8 @@
     "start": "cd backend && npm start",
     "dev": "cd backend && npm run dev",
     "install-all": "cd backend && npm install",
-    "setup": "npm run install-all && cd backend && npm run init-db"
+    "setup": "npm run install-all && cd backend && npm run init-db",
+    "build": "npm run install-all"
   },
   "keywords": [
     "file-transfer",
