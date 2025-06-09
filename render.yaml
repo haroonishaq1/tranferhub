@@ -1,7 +1,7 @@
 services:
   - type: web
     name: tranferhub
-    env: node
+    environment: node
     plan: free
     buildCommand: npm run install-all
     startCommand: npm start
@@ -19,7 +19,7 @@ services:
     
   - type: pserv
     name: tranferhub-db
-    env: postgres
+    environment: postgres
     plan: free
-    databaseName: sendanywhere_clone
-    databaseUser: postgres
+    database: sendanywhere_clone
+    user: postgres
