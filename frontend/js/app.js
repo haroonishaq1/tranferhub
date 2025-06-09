@@ -41,6 +41,7 @@ class SendAnywhereApp {
         const protocol = window.location.protocol;
         const hostname = window.location.hostname;
         let port = window.location.port;
+<<<<<<< Updated upstream
         
         // Production environment (Render or similar)
         if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
@@ -53,6 +54,18 @@ class SendAnywhereApp {
             } else {
                 return `http://${hostname}:3001`;
             }
+=======
+          // If we're on port 8000 (frontend), connect to backend on 4999
+        // If we're on port 4999 (backend serving frontend), connect to same port
+        let serverUrl;
+        if (port === '8000') {
+            serverUrl = `http://${hostname}:4999`;
+        } else if (port === '4999' || !port) {
+            serverUrl = `http://${hostname}:4999`;
+        } else {
+            // Default fallback
+            serverUrl = 'http://localhost:4999';
+>>>>>>> Stashed changes
         }
     }
 

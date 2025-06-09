@@ -93,7 +93,11 @@ hub/
    ```
 
 6. **Access the application**:
+<<<<<<< Updated upstream
    Open your browser and navigate to `http://localhost:3001`
+=======
+   Open your browser and navigate to `http://localhost:4999`
+>>>>>>> Stashed changes
 
 ## How to Use
 
