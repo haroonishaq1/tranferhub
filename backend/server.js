@@ -203,10 +203,15 @@ io.on('connection', (socket) => {
       console.error('Error joining room:', error);
       socket.emit('error', { message: 'Failed to join room' });
     }
-  });
-  // Handle WebRTC signaling
+  });  // Handle WebRTC signaling
   socket.on('signal', (data) => {
-    console.log(`Signal from ${socket.id} to ${data.to}:`, data.signal?.type || 'unknown');
+    const signalType = data.signal?.type || 'unknown';
+    console.log(`Signal from ${socket.id} to ${data.to}: ${signalType}`);
+    
+    // Log ICE candidates for debugging
+    if (signalType === 'candidate' && data.signal?.candidate) {
+      console.log(`ICE candidate: ${data.signal.candidate.type} (${data.signal.candidate.protocol}) from ${socket.id}`);
+    }
     
     if (!data.to) {
       console.error('Signal missing target socket ID');
@@ -220,7 +225,7 @@ io.on('connection', (socket) => {
         from: socket.id,
         signal: data.signal
       });
-      console.log(`Signal successfully relayed from ${socket.id} to ${data.to} (${data.signal?.type || 'unknown'})`);
+      console.log(`Signal successfully relayed from ${socket.id} to ${data.to} (${signalType})`);
     } else {
       console.log(`Target socket ${data.to} not found or disconnected`);
       socket.emit('error', { message: 'Target peer not found or disconnected' });

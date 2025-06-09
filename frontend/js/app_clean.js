@@ -952,9 +952,9 @@ class SendAnywhereApp {    constructor() {
     }    initPeerConnection(initiator, targetSocketId) {
         console.log(`Initializing peer connection - Initiator: ${initiator}, Target: ${targetSocketId}, My ID: ${this.socket.id}`);
         
-        // Enhanced ICE server configuration with multiple STUN and TURN servers
+        // Enhanced ICE server configuration with multiple reliable TURN servers
         const iceServers = [
-            // Google STUN servers
+            // Google STUN servers (multiple for redundancy)
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
             { urls: 'stun:stun2.l.google.com:19302' },
@@ -966,14 +966,9 @@ class SendAnywhereApp {    constructor() {
             { urls: 'stun:stun.voiparound.com' },
             { urls: 'stun:stun.voipbuster.com' },
             
-            // Multiple free TURN servers for better reliability
+            // Multiple TURN servers for NAT traversal (production-ready)
             {
-                urls: 'turn:openrelay.metered.ca:80',
-                username: 'openrelayproject',
-                credential: 'openrelayproject'
-            },
-            {
-                urls: 'turn:openrelay.metered.ca:443',
+                urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
                 username: 'openrelayproject',
                 credential: 'openrelayproject'
             },
@@ -982,11 +977,17 @@ class SendAnywhereApp {    constructor() {
                 username: 'openrelayproject',
                 credential: 'openrelayproject'
             },
-            // Alternative free TURN servers
+            // Additional TURN servers for better reliability
             {
-                urls: 'turn:relay1.expressturn.com:3478',
+                urls: ['turn:relay1.expressturn.com:3478'],
                 username: 'efJBIBVP6ETOFD3XKX',
                 credential: 'WmtzanB3ZnpERzRYVw'
+            },
+            // Backup TURN servers
+            {
+                urls: 'turn:numb.viagenie.ca',
+                username: 'webrtc@live.com',
+                credential: 'muazkh'
             }
         ];
 
@@ -1001,25 +1002,27 @@ class SendAnywhereApp {    constructor() {
 
         this.peer = new SimplePeer({
             initiator: initiator,
-            trickle: true, // Enable trickle ICE for better connectivity
+            trickle: true, // Enable trickle ICE for faster connection
             config: {
                 iceServers: iceServers,
-                iceCandidatePoolSize: 10,
-                iceTransportPolicy: 'all' // Use all available transport types
+                iceCandidatePoolSize: 10, // Increase candidate pool
+                iceTransportPolicy: 'all', // Use all transport types
+                bundlePolicy: 'max-bundle',
+                rtcpMuxPolicy: 'require'
             },
             objectMode: true,
-            allowHalfTrickle: true,
-            iceCompleteTimeout: 30000, // 30 seconds timeout for ICE completion
+            allowHalfTrickle: false, // Wait for all candidates for better reliability
+            iceCompleteTimeout: 15000, // Shorter timeout to fail faster
             offerOptions: {
                 offerToReceiveAudio: false,
                 offerToReceiveVideo: false
             }
         });
         
-        // Set connection timeout with better error handling
+        // Shorter connection timeout - fail fast and fallback
         this.connectionTimeout = setTimeout(() => {
             if (this.peer && !this.peer.connected) {
-                console.error('Connection timeout after 30 seconds');
+                console.error('Connection timeout after 15 seconds - initiating fallback');
                 console.log('Peer state:', {
                     connected: this.peer.connected,
                     connecting: this.peer.connecting,
@@ -1028,17 +1031,29 @@ class SendAnywhereApp {    constructor() {
                 
                 // Try to get more detailed connection info
                 if (this.peer._pc) {
-                    console.log('WebRTC connection state:', this.peer._pc.connectionState);
-                    console.log('ICE connection state:', this.peer._pc.iceConnectionState);
-                    console.log('ICE gathering state:', this.peer._pc.iceGatheringState);
+                    console.log('WebRTC states:', {
+                        connectionState: this.peer._pc.connectionState,
+                        iceConnectionState: this.peer._pc.iceConnectionState,
+                        iceGatheringState: this.peer._pc.iceGatheringState
+                    });
                 }
                 
                 this.handleConnectionFailure('Connection timeout - peer connection could not be established');
             }
-        }, 30000);
+        }, 15000); // Reduced from 30 seconds to 15 seconds
 
         this.peer.on('signal', (signal) => {
-            console.log(`Sending signal to ${targetSocketId}`, signal.type);
+            console.log(`Sending signal to ${targetSocketId}:`, signal.type);
+            
+            // Log ICE candidates for debugging
+            if (signal.type === 'candidate' && signal.candidate) {
+                console.log('Sending ICE candidate:', {
+                    type: signal.candidate.type,
+                    protocol: signal.candidate.protocol,
+                    address: signal.candidate.address
+                });
+            }
+            
             this.socket.emit('signal', {
                 to: targetSocketId,
                 signal: signal
@@ -1046,7 +1061,7 @@ class SendAnywhereApp {    constructor() {
         });
 
         this.peer.on('connect', () => {
-            console.log('P2P connection established with', targetSocketId);
+            console.log('🎉 P2P connection established successfully with', targetSocketId);
             
             // Clear connection timeout
             if (this.connectionTimeout) {
@@ -1074,7 +1089,7 @@ class SendAnywhereApp {    constructor() {
         });
 
         this.peer.on('error', (err) => {
-            console.error('Peer connection error:', err);
+            console.error('❌ Peer connection error:', err);
             this.handleConnectionFailure(err.message || 'Connection error');
         });
 
@@ -1091,47 +1106,58 @@ class SendAnywhereApp {    constructor() {
             this.peer = null;
         });
         
-        // Monitor ICE connection state
+        // Enhanced ICE connection monitoring
         if (this.peer._pc) {
             this.peer._pc.oniceconnectionstatechange = () => {
                 const state = this.peer._pc.iceConnectionState;
-                console.log('ICE connection state:', state);
+                console.log('🔄 ICE connection state changed to:', state);
                 
                 if (state === 'failed') {
-                    console.error('ICE connection failed - this usually indicates NAT/firewall issues');
+                    console.error('❌ ICE connection failed - NAT/firewall issues detected');
                     this.handleConnectionFailure('Network connection failed - NAT/firewall may be blocking connection');
                 } else if (state === 'disconnected') {
-                    console.warn('ICE connection disconnected - connection may be unstable');
-                    // Don't immediately fail on disconnected, give it time to reconnect
+                    console.warn('⚠️ ICE connection disconnected - connection may be unstable');
+                    // Give it time to reconnect before failing
                     setTimeout(() => {
                         if (this.peer && this.peer._pc && this.peer._pc.iceConnectionState === 'disconnected') {
                             this.handleConnectionFailure('Network connection lost');
                         }
                     }, 5000);
                 } else if (state === 'connected' || state === 'completed') {
-                    console.log('ICE connection established successfully');
+                    console.log('✅ ICE connection established successfully');
+                } else if (state === 'checking') {
+                    console.log('🔍 ICE connection checking...');
                 }
             };
             
             this.peer._pc.onconnectionstatechange = () => {
                 const state = this.peer._pc.connectionState;
-                console.log('Peer connection state:', state);
+                console.log('🔄 Peer connection state changed to:', state);
                 
                 if (state === 'failed') {
-                    console.error('Peer connection failed');
+                    console.error('❌ Peer connection failed');
                     this.handleConnectionFailure('Peer connection failed');
                 } else if (state === 'connected') {
-                    console.log('Peer connection fully established');
+                    console.log('✅ Peer connection fully established');
                 }
             };
             
-            // Add ICE candidate logging
+            // Enhanced ICE candidate logging
             this.peer._pc.onicecandidate = (event) => {
                 if (event.candidate) {
-                    console.log('ICE candidate type:', event.candidate.type);
+                    console.log('📤 Generated ICE candidate:', {
+                        type: event.candidate.type,
+                        protocol: event.candidate.protocol,
+                        address: event.candidate.address || 'hidden'
+                    });
                 } else {
-                    console.log('ICE gathering complete');
+                    console.log('✅ ICE candidate gathering complete');
                 }
+            };
+            
+            // Monitor ICE gathering state
+            this.peer._pc.onicegatheringstatechange = () => {
+                console.log('🔄 ICE gathering state:', this.peer._pc.iceGatheringState);
             };
         }
     }
@@ -1151,7 +1177,7 @@ class SendAnywhereApp {    constructor() {
             this.showToast('Connection lost. Please try again.', 'warning');
         }
     }    handleConnectionFailure(message) {
-        console.error('Connection failure:', message);
+        console.error('🚨 Connection failure:', message);
         
         // Clear timeout
         if (this.connectionTimeout) {
@@ -1168,34 +1194,28 @@ class SendAnywhereApp {    constructor() {
             this.peer = null;
         }
         
-        // For testing: if this is a local/same-origin transfer, use fallback
-        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-            console.log('Detected local environment, attempting fallback transfer method');
-            this.showToast('WebRTC failed, using fallback method...', 'info', 3000);
-            
-            // Use server-relayed transfer as fallback
-            setTimeout(() => {
-                this.initiateServerRelayedTransfer();
-            }, 2000);
-            return;
-        }
+        // Always try server relay as fallback for cross-device transfers
+        console.log('🔄 Attempting server-relayed transfer as fallback');
+        this.showToast('WebRTC failed, using server relay...', 'info', 3000);
         
-        // Show user-friendly error message
-        this.showToast(`Connection failed: ${message}. Please try again.`, 'error', 5000);
-        
-        // Update UI to show error state
+        // Update UI to show fallback mode
         const statusMessage = document.getElementById('status-message');
         const receiveMessage = document.getElementById('receive-message');
         
         if (statusMessage) {
-            statusMessage.textContent = 'Connection failed. Please try again.';
-            statusMessage.className = 'status-error';
+            statusMessage.textContent = 'Using fallback transfer method...';
+            statusMessage.className = 'status-transferring';
         }
         
         if (receiveMessage) {
-            receiveMessage.textContent = 'Connection failed. Please try again.';
-            receiveMessage.className = 'status-error';
+            receiveMessage.textContent = 'Waiting for files via server...';
+            receiveMessage.className = 'status-waiting';
         }
+        
+        // Immediate fallback - don't wait
+        setTimeout(() => {
+            this.initiateServerRelayedTransfer();
+        }, 1000);
     }
     
     startConnectionHeartbeat() {
