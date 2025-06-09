@@ -946,14 +946,14 @@ class SendAnywhereApp {    constructor() {
                 <div class="info-row"><strong>Last Modified:</strong> ${createdDate}</div>
             </div>
         `;
-        
-        this.showToast(infoHtml, 'info', 5000);
-    }    // Other existing methods...
+          this.showToast(infoHtml, 'info', 5000);
+    }
+
     handleReceiverJoined(data) {
         console.log(`Receiver joined: ${data.receiverSocketId}, my socket ID: ${this.socket.id}`);
         const statusMessage = document.getElementById('status-message');
         if (statusMessage) {
-            statusMessage.textContent = 'Receiver connected! Establishing connection...';
+            statusMessage.textContent = 'Receiver connected! Checking connection method...';
             statusMessage.className = 'status-connected';
         }
         
@@ -961,10 +961,11 @@ class SendAnywhereApp {    constructor() {
         if (data.receiverSocketId === this.socket.id) {
             console.log('Self-connection detected, simulating local transfer');
             this.simulateLocalTransfer();
-        } else {
-            console.log(`Initiating P2P connection to receiver: ${data.receiverSocketId}`);
-            this.initPeerConnection(true, data.receiverSocketId);
+            return;
         }
+        
+        // Smart connection detection - skip P2P if likely to fail
+        this.determineConnectionMethod(true, data.receiverSocketId);
         
         this.showToast('Receiver joined! Starting transfer...', 'success');
     }
@@ -973,21 +974,315 @@ class SendAnywhereApp {    constructor() {
         console.log(`Joined room with sender: ${data.senderSocketId}, my socket ID: ${this.socket.id}`);
         const receiveMessage = document.getElementById('receive-message');
         if (receiveMessage) {
-            receiveMessage.textContent = 'Connected! Waiting for files...';
+            receiveMessage.textContent = 'Connected! Checking connection method...';
             receiveMessage.className = 'status-connected';
         }
+        
+        // Store the current code for receiver
+        this.currentCode = data.code;
         
         // Check if this is a self-connection (same socket)
         if (data.senderSocketId === this.socket.id) {
             console.log('Self-connection detected, simulating local transfer');
             this.simulateLocalTransfer();
-        } else {
-            console.log(`Initiating P2P connection to sender: ${data.senderSocketId}`);
-            this.initPeerConnection(false, data.senderSocketId);
+            return;
         }
         
+        // Smart connection detection - skip P2P if likely to fail
+        this.determineConnectionMethod(false, data.senderSocketId);
+        
         this.showToast('Connected to sender!', 'success');
-    }    initPeerConnection(initiator, targetSocketId) {
+    }
+
+    // Smart connection method determination
+    async determineConnectionMethod(initiator, targetSocketId) {
+        console.log('🔍 Analyzing network conditions for optimal connection method...');
+        
+        // Quick network assessment
+        const networkAssessment = await this.assessNetworkConditions();
+        
+        console.log('📊 Network Assessment:', networkAssessment);
+        
+        // Decision logic for connection method
+        if (networkAssessment.shouldSkipP2P) {
+            console.log('🚀 Network conditions indicate P2P will fail - using server relay directly');
+            
+            // Update UI to show server relay mode
+            const statusMessage = document.getElementById('status-message');
+            const receiveMessage = document.getElementById('receive-message');
+            
+            if (statusMessage) {
+                statusMessage.textContent = 'Using server relay for reliable transfer...';
+                statusMessage.className = 'status-relay';
+            }
+            
+            if (receiveMessage) {
+                receiveMessage.textContent = 'Using server relay for reliable transfer...';
+                receiveMessage.className = 'status-relay';
+            }
+            
+            this.showToast('Using server relay for cross-device transfer', 'info', 4000);
+            
+            // Skip P2P entirely and go straight to server relay
+            setTimeout(() => {
+                this.initiateServerRelayedTransfer();
+            }, 1000);
+            
+        } else {
+            console.log('🔗 Network conditions allow P2P attempt with fast fallback');
+            this.showToast('Attempting direct connection...', 'info', 3000);
+            
+            // Try P2P with aggressive timeout
+            this.initPeerConnectionWithFastFallback(initiator, targetSocketId);
+        }
+    }
+
+    // Assess network conditions to determine if P2P is likely to succeed
+    async assessNetworkConditions() {
+        const assessment = {
+            hasWebRTC: typeof SimplePeer !== 'undefined',
+            relayCandidates: 0,
+            srflxCandidates: 0,
+            hostCandidates: 0,
+            stunServersWorking: 0,
+            shouldSkipP2P: false,
+            reason: ''
+        };
+
+        try {
+            // Quick ICE candidate test (3 seconds max)
+            console.log('⚡ Quick network test (3 seconds)...');
+            
+            const testResult = await Promise.race([
+                this.quickIceTest(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Quick test timeout')), 3000))
+            ]);
+            
+            assessment.relayCandidates = testResult.relay;
+            assessment.srflxCandidates = testResult.srflx;
+            assessment.hostCandidates = testResult.host;
+            assessment.stunServersWorking = testResult.stunWorking;
+            
+        } catch (error) {
+            console.log('⚠️ Quick network test failed:', error.message);
+            // If we can't even do a quick test, P2P is very unlikely to work
+            assessment.shouldSkipP2P = true;
+            assessment.reason = 'Network test failed - severe restrictions detected';
+            return assessment;
+        }
+
+        // Decision logic
+        if (assessment.relayCandidates === 0 && assessment.srflxCandidates === 0) {
+            assessment.shouldSkipP2P = true;
+            assessment.reason = 'No STUN/TURN connectivity - P2P impossible';
+        } else if (assessment.relayCandidates === 0 && assessment.stunServersWorking < 2) {
+            assessment.shouldSkipP2P = true;
+            assessment.reason = 'Limited STUN access, no TURN - cross-device P2P unlikely';
+        } else if (assessment.stunServersWorking === 0) {
+            assessment.shouldSkipP2P = true;
+            assessment.reason = 'No STUN servers accessible - NAT traversal impossible';
+        }
+
+        return assessment;
+    }
+
+    // Quick ICE candidate collection test
+    quickIceTest() {
+        return new Promise((resolve) => {
+            const pc = new RTCPeerConnection({ 
+                iceServers: this.getIceServersConfig().slice(0, 6) // Test only first 6 servers for speed
+            });
+            
+            const candidates = { host: 0, srflx: 0, relay: 0, stunWorking: 0 };
+            const stunServers = new Set();
+            
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    candidates[event.candidate.type]++;
+                    
+                    // Track which STUN servers are working
+                    if (event.candidate.type === 'srflx' || event.candidate.type === 'relay') {
+                        stunServers.add(event.candidate.address);
+                    }
+                }
+            };
+            
+            pc.onicegatheringstatechange = () => {
+                if (pc.iceGatheringState === 'complete') {
+                    candidates.stunWorking = stunServers.size;
+                    pc.close();
+                    resolve(candidates);
+                }
+            };
+            
+            // Trigger candidate gathering
+            pc.createDataChannel('test');
+            pc.createOffer().then(offer => pc.setLocalDescription(offer));
+            
+            // Ensure we don't hang
+            setTimeout(() => {
+                candidates.stunWorking = stunServers.size;
+                pc.close();
+                resolve(candidates);
+            }, 2800);
+        });
+    }
+
+    // P2P connection with very aggressive fallback
+    initPeerConnectionWithFastFallback(initiator, targetSocketId) {
+        console.log(`🚀 Attempting P2P with fast fallback - Initiator: ${initiator}, Target: ${targetSocketId}`);
+        
+        // Enhanced ICE server configuration
+        const iceServers = this.getIceServersConfig();
+        
+        // Check if SimplePeer is available
+        if (typeof SimplePeer === 'undefined') {
+            console.error('SimplePeer not loaded, falling back to server relay immediately');
+            this.handleConnectionFailure('WebRTC not available, using server relay');
+            return;
+        }
+
+        this.peer = new SimplePeer({
+            initiator: initiator,
+            trickle: true,
+            config: {
+                iceServers: iceServers,
+                iceCandidatePoolSize: 10,
+                iceTransportPolicy: 'all',
+                bundlePolicy: 'max-bundle',
+                rtcpMuxPolicy: 'require'
+            },
+            objectMode: true,
+            allowHalfTrickle: false,
+            iceCompleteTimeout: 5000, // Shorter timeout for faster detection
+            offerOptions: {
+                offerToReceiveAudio: false,
+                offerToReceiveVideo: false
+            }
+        });
+        
+        // Very aggressive timeout - 5 seconds for cross-device
+        this.connectionTimeout = setTimeout(() => {
+            if (this.peer && !this.peer.connected) {
+                console.log('⏰ Fast timeout triggered (5 seconds) - failing over to server relay');
+                this.handleConnectionFailure('Fast P2P timeout - using server relay for reliability');
+            }
+        }, 5000);
+
+        // Enhanced connection monitoring
+        let connectionAttemptStarted = Date.now();
+        let iceCandidatesReceived = 0;
+        let iceGatheringComplete = false;
+
+        this.peer.on('signal', (signal) => {
+            console.log(`📤 Sending signal to ${targetSocketId}:`, signal.type);
+            
+            if (signal.type === 'candidate') {
+                iceCandidatesReceived++;
+                
+                // If we haven't received relay candidates after 3 seconds, prepare for fallback
+                if (Date.now() - connectionAttemptStarted > 3000 && iceCandidatesReceived > 5 && !iceGatheringComplete) {
+                    console.log('⚠️ No relay candidates after 3 seconds, P2P unlikely to succeed');
+                }
+            }
+            
+            this.socket.emit('signal', {
+                to: targetSocketId,
+                signal: signal
+            });
+        });
+
+        this.peer.on('connect', () => {
+            console.log('🎉 P2P connection established successfully with', targetSocketId);
+            
+            // Clear connection timeout
+            if (this.connectionTimeout) {
+                clearTimeout(this.connectionTimeout);
+                this.connectionTimeout = null;
+            }
+            
+            this.showToast('Direct connection established! Starting transfer...', 'success');
+            
+            // Start connection heartbeat
+            this.startConnectionHeartbeat();
+            
+            if (initiator) {
+                console.log('Starting file transfer as sender');
+                setTimeout(() => this.sendFiles(), 500);
+            } else {
+                console.log('Ready to receive files');
+                this.showToast('Ready to receive files...', 'info');
+            }
+        });
+
+        this.peer.on('data', (data) => {
+            this.handleIncomingData(data);
+        });
+
+        this.peer.on('error', (err) => {
+            console.error('❌ Peer connection error:', err);
+            this.handleConnectionFailure(`P2P error: ${err.message || 'Connection failed'}`);
+        });
+
+        this.peer.on('close', () => {
+            console.log('Peer connection closed');
+            if (this.connectionTimeout) {
+                clearTimeout(this.connectionTimeout);
+                this.connectionTimeout = null;
+            }
+            
+            this.stopConnectionHeartbeat();
+            this.peer = null;
+        });
+        
+        // Enhanced connection state monitoring
+        if (this.peer._pc) {
+            this.peer._pc.oniceconnectionstatechange = () => {
+                const state = this.peer._pc.iceConnectionState;
+                console.log('🔄 ICE connection state:', state);
+                
+                switch (state) {
+                    case 'checking':
+                        console.log('🔍 ICE checking - attempting connection...');
+                        break;
+                    case 'connected':
+                        console.log('✅ ICE connected successfully');
+                        break;
+                    case 'completed':
+                        console.log('✅ ICE completed');
+                        break;
+                    case 'failed':
+                        console.error('❌ ICE connection failed - immediate fallback');
+                        this.handleConnectionFailure('ICE connection failed - using server relay');
+                        break;
+                    case 'disconnected':
+                        console.warn('⚠️ ICE disconnected');
+                        break;
+                    case 'closed':
+                        console.log('🔒 ICE closed');
+                        break;
+                }
+            };
+            
+            this.peer._pc.onicegatheringstatechange = () => {
+                const state = this.peer._pc.iceGatheringState;
+                console.log('🔄 ICE gathering state:', state);
+                
+                if (state === 'complete') {
+                    iceGatheringComplete = true;
+                    console.log('🎯 ICE gathering completed');
+                    
+                    // If gathering complete and no connection after 2 more seconds, fallback
+                    setTimeout(() => {
+                        if (this.peer && !this.peer.connected && this.peer._pc.iceConnectionState !== 'connected') {
+                            console.log('⚠️ ICE gathering complete but no connection - triggering fallback');
+                            this.handleConnectionFailure('ICE gathering complete but connection failed');
+                        }
+                    }, 2000);
+                }
+            };
+        }
+    }initPeerConnection(initiator, targetSocketId) {
         console.log(`Initializing peer connection - Initiator: ${initiator}, Target: ${targetSocketId}, My ID: ${this.socket.id}`);
           // Enhanced ICE server configuration with more reliable TURN servers
         const iceServers = this.getIceServersConfig();
@@ -1507,11 +1802,12 @@ class SendAnywhereApp {    constructor() {
             receiveMessage.textContent = `${this.receivedFiles.length} files downloaded successfully!`;
             receiveMessage.className = 'status-complete';
         }
-        
-        // Show download interface
+          // Show download interface
         this.showReceivedFiles();
         this.showToast(`Transfer complete! ${this.receivedFiles.length} files received.`, 'success');
-    }async sendFilesViaServer() {
+    }
+    
+    async sendFilesViaServer() {
         if (!this.selectedFiles.length || !this.currentCode) {
             console.error('Cannot send files via server: no files or no code');
             return;
@@ -1661,11 +1957,12 @@ class SendAnywhereApp {    constructor() {
             
             setTimeout(() => {
                 this.sendFileAtIndex(index + 1);
-            }, 100);
-        };
+            }, 100);        };
 
         reader.readAsDataURL(file);
-    }    handleIncomingData(data) {
+    }
+    
+    handleIncomingData(data) {
         try {
             // Try to parse as JSON (metadata)
             const message = JSON.parse(data);
@@ -1755,12 +2052,13 @@ class SendAnywhereApp {    constructor() {
             link.href = file.data;
             link.download = file.name;
             document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            link.click();        document.body.removeChild(link);
         });
         
         this.showToast('Files downloaded!', 'success');
-    }    joinTransfer() {
+    }
+    
+    joinTransfer() {
         const codeInput = document.getElementById('receive-code-input');
         if (!codeInput) return;
         
