@@ -199,18 +199,29 @@ io.on('connection', (socket) => {
       socket.emit('error', { message: 'Failed to join room' });
     }
   });
-    // Handle WebRTC signaling
+  // Handle WebRTC signaling
   socket.on('signal', (data) => {
-    console.log(`Signal from ${socket.id} to ${data.to}`);
-    if (data.to && io.sockets.sockets.has(data.to)) {
-      io.to(data.to).emit('signal', {
+    console.log(`Signal from ${socket.id} to ${data.to}:`, data.signal?.type || 'unknown');
+    
+    if (!data.to) {
+      console.error('Signal missing target socket ID');
+      socket.emit('error', { message: 'Invalid signal: missing target' });
+      return;
+    }
+    
+    const targetSocket = io.sockets.sockets.get(data.to);
+    if (targetSocket) {
+      targetSocket.emit('signal', {
         from: socket.id,
         signal: data.signal
       });
-      console.log(`Signal successfully relayed from ${socket.id} to ${data.to}`);
+      console.log(`Signal successfully relayed from ${socket.id} to ${data.to} (${data.signal?.type || 'unknown'})`);
     } else {
       console.log(`Target socket ${data.to} not found or disconnected`);
-      socket.emit('error', { message: 'Target peer not found' });
+      socket.emit('error', { message: 'Target peer not found or disconnected' });
+      
+      // Notify the sender that the receiver is no longer available
+      socket.emit('peer-disconnected', { socketId: data.to });
     }
   });
     // Handle transfer complete
