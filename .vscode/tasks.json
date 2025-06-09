@@ -1,0 +1,13 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"command": "cd frontend && python -m http.server 8000",
+			"group": "build",
+			"isBackground": true,
+			"label": "Start Frontend Server",
+			"problemMatcher": [],
+			"type": "shell"
+		}
+	]
+}

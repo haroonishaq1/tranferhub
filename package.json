@@ -1,0 +1,26 @@
+{
+  "name": "sendanywhere-clone",
+  "version": "1.0.0",
+  "description": "A clone of SendAnywhere - instant file transfer with 6-digit codes using WebRTC",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "cd backend && npm start",
+    "dev": "cd backend && npm run dev",
+    "install-all": "cd backend && npm install",
+    "setup": "npm run install-all && cd backend && npm run init-db"
+  },
+  "keywords": [
+    "file-transfer",
+    "p2p",
+    "webrtc",
+    "nodejs",
+    "express",
+    "postgresql"
+  ],
+  "author": "",
+  "license": "ISC",
+  "directories": {
+    "backend": "./backend",
+    "frontend": "./frontend"
+  }
+}

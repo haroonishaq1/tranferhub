@@ -1,0 +1,21 @@
+# Ignore files that shouldn't trigger server restarts
+*.log
+*.tmp
+*.temp
+node_modules/
+.git/
+uploads/
+storage/
+.env.local
+.env.development
+.env.production
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

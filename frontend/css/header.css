@@ -1,0 +1,280 @@
+/* Modern Header/Navbar Styles - Converted from React styled-components */
+
+/* Header Container */
+.modern-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 1000;
+    padding: 1.2rem 0;  
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    overflow-x: hidden;
+    box-sizing: border-box;
+    transition: all 0.3s ease;
+}
+
+@media (max-width: 768px) {
+    .modern-header {
+        padding: 1rem 0;
+        z-index: 10000;
+    }
+}
+
+/* Backdrop overlay for mobile menu */
+.modern-header::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+    z-index: 9998;
+    pointer-events: none;
+}
+
+.modern-header.menu-active::before {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.3s ease, visibility 0s linear;
+    pointer-events: auto;
+}
+
+/* Navigation Container */
+.header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 2rem;
+    position: relative;
+    z-index: 10;
+}
+
+@media (max-width: 768px) {
+    .header-container {
+        padding: 0 1.5rem;
+    }
+}
+
+/* Logo */
+.logo h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #000000;
+    text-decoration: none;
+    background: linear-gradient(135deg, #000000 0%, #111111 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    transition: all 0.3s ease;
+    margin: 0;
+}
+
+.logo h1:hover {
+    transform: scale(1.02);
+}
+
+/* Menu Items */
+.nav-menu {
+    display: flex;
+    gap: 2.5rem;
+    align-items: center;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.nav-menu .nav-link {
+    color: #000000;
+    font-weight: 500;
+    position: relative;
+    text-decoration: none;
+    transition: color 0.3s ease;
+    padding: 0.5rem 0;
+}
+
+.nav-menu .nav-link::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: -5px;
+    width: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #000000, #111111);
+    transition: width 0.3s ease;
+}
+
+.nav-menu .nav-link:hover {
+    color: #111111;
+}
+
+.nav-menu .nav-link:hover::after {
+    width: 100%;
+}
+
+/* Mobile Menu Toggle */
+.mobile-menu-toggle {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #000000;
+    cursor: pointer;
+    padding: 0.5rem;
+    z-index: 10001;
+    position: relative;
+    width: 30px;
+    height: 30px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.mobile-menu-toggle span {
+    display: block;
+    width: 25px;
+    height: 3px;
+    background-color: #000000;
+    margin: 3px 0;
+    transition: 0.3s;
+    transform-origin: center;
+}
+
+.mobile-menu-toggle.active span:nth-child(1) {
+    transform: rotate(-45deg) translate(-5px, 6px);
+}
+
+.mobile-menu-toggle.active span:nth-child(2) {
+    opacity: 0;
+}
+
+.mobile-menu-toggle.active span:nth-child(3) {
+    transform: rotate(45deg) translate(-5px, -6px);
+}
+
+@media (max-width: 768px) {
+    .mobile-menu-toggle {
+        display: block;
+    }
+    
+    .nav-menu {
+        position: fixed;
+        top: 0;
+        right: -100%;
+        height: 100vh;
+        width: 280px;
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(20px);
+        flex-direction: column;
+        justify-content: flex-start;
+        align-items: flex-start;
+        padding: 6rem 2rem 2rem;
+        gap: 2rem;
+        transition: right 0.3s ease;
+        z-index: 9999;
+        box-shadow: -5px 0 20px rgba(0, 0, 0, 0.1);    }
+    
+    .nav-menu.active {
+        right: 0;
+    }
+    
+    .nav-menu .nav-link {
+        width: 100%;
+        opacity: 0;
+        transform: translateX(20px);
+        transition: all 0.3s ease;
+        display: block;
+        padding: 1rem 0;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    }
+    
+    .nav-menu.active .nav-link {
+        opacity: 1;
+        transform: translateX(0);
+    }
+      .nav-menu.active .nav-link:nth-child(1) { transition-delay: 0.1s; }
+    .nav-menu.active .nav-link:nth-child(2) { transition-delay: 0.2s; }
+    .nav-menu.active .nav-link:nth-child(3) { transition-delay: 0.3s; }
+    .nav-menu.active .nav-link:nth-child(4) { transition-delay: 0.4s; }
+}
+
+/* Smooth scroll offset for fixed header */
+html {
+    scroll-padding-top: 80px;
+}
+
+/* Header scroll effect */
+.modern-header.scrolled {
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* CTA Button in header */
+.header-cta {
+    background: #000000;
+    color: #ffffff;
+    padding: 0.6rem 1.5rem;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    border: 2px solid #000000;
+}
+
+.header-cta:hover {
+    background: transparent;
+    color: #000000;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+@media (max-width: 768px) {
+    .header-cta {
+        padding: 0.8rem 1.5rem;
+        font-size: 1rem;
+        border-radius: 6px;
+    }
+}
+
+/* Animation for menu items */
+@keyframes slideInFromRight {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Accessibility improvements */
+.mobile-menu-toggle:focus,
+.modern-menu a:focus,
+.header-cta:focus {
+    outline: 2px solid #000000;
+    outline-offset: 2px;
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+    .modern-header {
+        background: #ffffff;
+        border-bottom: 2px solid #000000;
+    }
+    
+    .modern-logo,
+    .modern-menu a {
+        color: #000000;
+        -webkit-text-fill-color: #000000;
+    }
+}

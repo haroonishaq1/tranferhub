@@ -1,0 +1,1127 @@
+// SendAnywhere Clone - Frontend JavaScript
+class SendAnywhereApp {
+    constructor() {
+        this.socket = null;
+        this.peer = null;
+        this.selectedFiles = [];
+        this.currentCode = null;
+        this.isReceiver = false;
+        this.receivedFiles = [];
+        
+        this.init();
+    }
+
+    init() {
+        this.connectSocket();
+        this.setupEventListeners();
+        this.setupFileHandling();
+    }
+
+    connectSocket() {
+        this.socket = io('http://localhost:5000', {
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionAttempts: 5,
+            timeout: 20000
+        });
+        
+        this.socket.on('connect', () => {
+            console.log('Connected to server');
+            this.showToast('Connected to server', 'success');
+        });
+        
+        this.socket.on('disconnect', (reason) => {
+            console.log('Disconnected from server:', reason);
+            if (reason !== 'io client disconnect') {
+                this.showToast('Connection lost. Attempting to reconnect...', 'warning');
+            }
+        });
+
+        this.socket.on('reconnect', () => {
+            console.log('Reconnected to server');
+            this.showToast('Reconnected to server', 'success');
+        });
+
+        this.socket.on('reconnect_failed', () => {
+            console.log('Failed to reconnect to server');
+            this.showToast('Connection failed. Please try again.', 'error');
+        });
+
+        this.socket.on('error', (error) => {
+            console.error('Socket error:', error);
+            this.showToast('Connection error: ' + (error.message || error), 'error');
+        });
+
+        this.socket.on('connect_error', (error) => {
+            console.error('Connection error:', error);
+            this.showToast('Failed to connect to server', 'error');
+        });
+
+        this.socket.on('code-generated', (data) => {
+            this.handleCodeGenerated(data);
+        });
+
+        this.socket.on('receiver-joined', (data) => {
+            this.handleReceiverJoined(data);
+        });
+
+        this.socket.on('joined-room', (data) => {
+            this.handleJoinedRoom(data);
+        });
+
+        this.socket.on('signal', (data) => {
+            this.handleSignal(data);
+        });
+        
+        this.socket.on('code-expired', (data) => {
+            this.showToast('Transfer code expired', 'warning');
+            this.resetTransfer();
+        });
+
+        this.socket.on('error', (data) => {
+            console.error('Server error:', data);
+            this.showToast(data.message || 'An error occurred', 'error');
+        });
+    }
+
+    setupEventListeners() {
+        // File selection
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            this.handleFileSelection(e.target.files);
+        });
+
+        // Generate code button
+        document.getElementById('generate-code-btn').addEventListener('click', () => {
+            this.generateCode();
+        });
+
+        // Copy code button
+        document.getElementById('copy-code-btn').addEventListener('click', () => {
+            this.copyCode();
+        });
+
+        // Receive button
+        document.getElementById('receive-btn').addEventListener('click', () => {
+            this.joinTransfer();
+        });
+
+        // Receive code input
+        const codeInput = document.getElementById('receive-code-input');
+        codeInput.addEventListener('input', (e) => {
+            // Filter to digits only and limit length
+            e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+            
+            // Visual cue when 6 digits are entered
+            if (e.target.value.length === 6) {
+                e.target.style.borderColor = '#4CAF50';
+                document.getElementById('receive-btn').classList.add('bounce-in');
+            } else {
+                e.target.style.borderColor = '';
+                document.getElementById('receive-btn').classList.remove('bounce-in');
+            }
+        });
+        
+        // Input focus effects
+        codeInput.addEventListener('focus', () => {
+            codeInput.parentElement.classList.add('focused');
+        });
+        
+        codeInput.addEventListener('blur', () => {
+            codeInput.parentElement.classList.remove('focused');
+        });
+        
+        // QR Scanner in Receive Section
+        document.getElementById('scan-qr-btn').addEventListener('click', () => {
+            this.startQRScanner();
+        });
+
+        document.getElementById('stop-camera-btn').addEventListener('click', () => {
+            this.stopQRScanner();
+        });
+
+        // Cancel/Reset buttons
+        document.getElementById('cancel-transfer-btn').addEventListener('click', () => {
+            this.cancelTransfer();
+        });
+
+        document.getElementById('reset-transfer-btn').addEventListener('click', () => {
+            this.resetTransfer();
+        });
+
+        document.getElementById('cancel-receive-btn').addEventListener('click', () => {
+            this.cancelReceive();
+        });
+
+        // Download all button
+        document.getElementById('download-all-btn').addEventListener('click', () => {
+            this.downloadAllFiles();
+        });
+    }
+
+    setupFileHandling() {
+        const dropZone = document.getElementById('file-drop-zone');
+        const fileInput = document.getElementById('file-input');
+
+        if (!dropZone || !fileInput) return;
+
+        // Click to select files
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Drag and drop functionality
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            this.handleFileSelection(e.dataTransfer.files);
+        });
+    }
+
+    handleFileSelection(files) {
+        if (files.length === 0) return;
+        
+        // Show loading state
+        const dropZone = document.getElementById('file-drop-zone');
+        if (!dropZone) return;
+        
+        const originalContent = dropZone.innerHTML;
+        
+        dropZone.innerHTML = `
+            <div class="loading-files">
+                <i class="fas fa-spinner fa-spin"></i>
+                <p>Processing ${files.length} file(s)...</p>
+            </div>
+        `;
+        
+        // Process files with slight delay to show the loading state
+        setTimeout(() => {
+            this.selectedFiles = Array.from(files);
+            
+            // Restore drop zone
+            dropZone.innerHTML = originalContent;
+            
+            // Update old UI for compatibility
+            this.displaySelectedFiles();
+            const selectedFiles = document.getElementById('selected-files');
+            if (selectedFiles) {
+                selectedFiles.classList.remove('hidden');
+            }
+            
+            // Show visual confirmation
+            this.showToast(`${files.length} file(s) selected successfully`, 'success');
+            
+            // Enable upload button with animated effect
+            const uploadBtn = document.getElementById('generate-code-btn');
+            if (uploadBtn) {
+                uploadBtn.classList.add('bounce-in');
+                setTimeout(() => uploadBtn.classList.remove('bounce-in'), 500);
+            }
+        }, 800);
+    }
+
+    displaySelectedFiles() {
+        const fileList = document.getElementById('file-list');
+        if (!fileList) return;
+        
+        fileList.innerHTML = '';
+
+        this.selectedFiles.forEach((file, index) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.innerHTML = `
+                <div class="file-info">
+                    <i class="fas fa-file"></i>
+                    <span class="file-name">${file.name}</span>
+                    <span class="file-size">(${this.formatFileSize(file.size)})</span>
+                </div>
+                <button class="remove-file" onclick="app.removeFile(${index})">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            fileList.appendChild(fileItem);
+        });
+    }
+
+    removeFile(index) {
+        this.selectedFiles.splice(index, 1);
+        const selectedFiles = document.getElementById('selected-files');
+        if (selectedFiles) {
+            if (this.selectedFiles.length === 0) {
+                selectedFiles.classList.add('hidden');
+            } else {
+                this.displaySelectedFiles();
+            }
+        }
+    }
+
+    generateCode() {
+        if (this.selectedFiles.length === 0) {
+            this.showToast('Please select files first', 'warning');
+            return;
+        }
+
+        this.socket.emit('generate-code');
+        const generateButton = document.getElementById('generate-code-btn');
+        if (generateButton) {
+            generateButton.disabled = true;
+            generateButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+        }
+    }
+
+    handleCodeGenerated(data) {
+        this.currentCode = data.code;
+        
+        // Hide upload area and show selected files section
+        const uploadArea = document.getElementById('upload-area');
+        const selectedFilesSection = document.getElementById('selected-files-section');
+        if (uploadArea) uploadArea.classList.add('hidden');
+        if (selectedFilesSection) selectedFilesSection.classList.remove('hidden');
+        
+        // Update status message
+        const statusMessage = document.getElementById('status-message');
+        if (statusMessage) {
+            statusMessage.textContent = 'Waiting for receiver...';
+            statusMessage.className = 'status-waiting';
+        }
+        
+        // Update the modern verification display with individual digits
+        this.displayVerificationCode(data.code);
+        
+        // Show the selected files details
+        this.showSelectedFileDetails();
+        
+        // Reset button
+        const generateButton = document.getElementById('generate-code-btn');
+        if (generateButton) {
+            generateButton.disabled = false;
+            generateButton.innerHTML = 'Upload Files';
+        }
+        
+        this.showToast('Code generated successfully!', 'success');
+    }
+
+    async generateQRCode(code) {
+        try {
+            const response = await fetch(`http://localhost:5000/api/files/generate-qr/${code}`);
+            const data = await response.json();
+            
+            const qrCodeImg = document.getElementById('qr-code-img');
+            if (data.success && qrCodeImg) {
+                qrCodeImg.src = data.qrCode;
+            }
+        } catch (error) {
+            console.error('Error generating QR code:', error);
+        }
+    }
+
+    displayVerificationCode(code) {
+        // Show the modern selected files section with the verification code
+        const selectedFilesSection = document.getElementById('selected-files-section');
+        if (selectedFilesSection) {
+            selectedFilesSection.classList.remove('hidden');
+        }
+        
+        // Get the verification code display element
+        const codeDigitsContainer = document.getElementById('code-digits');
+        
+        if (codeDigitsContainer) {
+            // Clear any existing digits
+            codeDigitsContainer.innerHTML = '';
+            
+            // Create individual digit elements
+            for (let i = 0; i < code.length; i++) {
+                const digitElement = document.createElement('div');
+                digitElement.className = 'code-digit';
+                digitElement.textContent = code[i];
+                codeDigitsContainer.appendChild(digitElement);
+                
+                // Add subtle animation
+                digitElement.style.animation = `fadeIn 0.3s ease-in-out ${i * 0.1}s both`;
+            }
+        }
+    }
+
+    showSelectedFileDetails() {
+        // Show the selected files section
+        const selectedFilesSection = document.getElementById('selected-files-section');
+        if (!selectedFilesSection) return;
+        
+        selectedFilesSection.classList.remove('hidden');
+        
+        // Update file details based on selection
+        if (this.selectedFiles.length > 0) {
+            // Primary file (first selected)
+            const primaryFile = this.selectedFiles[0];
+            
+            let fileNameDisplay = primaryFile.name;
+            let fileSizeTotal = primaryFile.size;
+            
+            // If multiple files, show count and calculate total size
+            if (this.selectedFiles.length > 1) {
+                fileNameDisplay = `${primaryFile.name} and ${this.selectedFiles.length - 1} more`;
+                fileSizeTotal = this.selectedFiles.reduce((total, file) => total + file.size, 0);
+            }
+            
+            // Determine primary file type or "Multiple" for mixed files
+            let fileTypeDisplay = primaryFile.type || 'Unknown';
+            if (this.selectedFiles.length > 1) {
+                const uniqueTypes = new Set(this.selectedFiles.map(file => file.type || 'Unknown'));
+                fileTypeDisplay = uniqueTypes.size > 1 ? 'Multiple formats' : fileTypeDisplay;
+            }
+            
+            // Update the file details
+            const fileDetailName = document.getElementById('file-detail-name');
+            const fileDetailSize = document.getElementById('file-detail-size');
+            const fileDetailType = document.getElementById('file-detail-type');
+            
+            if (fileDetailName) fileDetailName.textContent = fileNameDisplay;
+            if (fileDetailSize) fileDetailSize.textContent = this.formatFileSize(fileSizeTotal);
+            if (fileDetailType) fileDetailType.textContent = fileTypeDisplay;
+        }
+    }
+
+    copyCode() {
+        if (this.currentCode) {
+            navigator.clipboard.writeText(this.currentCode)
+                .then(() => {
+                    // Visual feedback
+                    const btn = document.getElementById('copy-code-btn');
+                    if (!btn) return;
+                    
+                    const originalText = btn.innerHTML;
+                    
+                    // Change button appearance
+                    btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                    btn.style.background = '#4CAF50';
+                    btn.style.color = 'white';
+                    
+                    // Show toast
+                    this.showToast('Code copied to clipboard!', 'success');
+                    
+                    // Reset the button after a delay
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.style.background = '';
+                        btn.style.color = '';
+                    }, 2000);
+                })
+                .catch(err => {
+                    console.error('Could not copy text: ', err);
+                    this.showToast('Failed to copy code', 'error');
+                });
+        }
+    }
+
+    joinTransfer() {
+        const codeInput = document.getElementById('receive-code-input');
+        if (!codeInput) return;
+        
+        const code = codeInput.value;
+        
+        if (code.length !== 6) {
+            this.showToast('Please enter a 6-digit code', 'warning');
+            return;
+        }
+
+        // Show file information if this is our own code (for self-transfer)
+        if (this.currentCode === code && this.selectedFiles.length > 0) {
+            this.showFilePreview();
+        }
+
+        this.isReceiver = true;
+        this.socket.emit('join-room', { code });
+        
+        const receiveStatus = document.getElementById('receive-status');
+        const receiveMessage = document.getElementById('receive-message');
+        
+        if (receiveStatus) receiveStatus.classList.remove('hidden');
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Connecting...';
+            receiveMessage.className = 'status-waiting';
+        }
+    }
+
+    handleReceiverJoined(data) {
+        const statusMessage = document.getElementById('status-message');
+        if (statusMessage) {
+            statusMessage.textContent = 'Receiver connected! Establishing connection...';
+            statusMessage.className = 'status-connected';
+        }
+        
+        // Check if this is a self-connection (same socket)
+        if (data.receiverSocketId === this.socket.id) {
+            // Self-connection: simulate local transfer
+            this.simulateLocalTransfer();
+        } else {
+            // Initialize peer connection as initiator (sender)
+            this.initPeerConnection(true, data.receiverSocketId);
+        }
+        
+        this.showToast('Receiver joined! Starting transfer...', 'success');
+    }
+
+    handleJoinedRoom(data) {
+        const receiveMessage = document.getElementById('receive-message');
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Connected! Waiting for files...';
+            receiveMessage.className = 'status-connected';
+        }
+        
+        // Check if this is a self-connection (same socket)
+        if (data.senderSocketId === this.socket.id) {
+            // Self-connection: simulate local transfer
+            this.simulateLocalTransfer();
+        } else {
+            // Initialize peer connection as non-initiator (receiver)
+            this.initPeerConnection(false, data.senderSocketId);
+        }
+        
+        this.showToast('Connected to sender!', 'success');
+    }
+
+    initPeerConnection(initiator, targetSocketId) {
+        this.peer = new SimplePeer({
+            initiator: initiator,
+            trickle: false
+        });
+
+        this.peer.on('signal', (signal) => {
+            this.socket.emit('signal', {
+                to: targetSocketId,
+                signal: signal
+            });
+        });
+
+        this.peer.on('connect', () => {
+            console.log('P2P connection established');
+            
+            if (initiator) {
+                // Sender: start sending files
+                this.sendFiles();
+            }
+        });
+
+        this.peer.on('data', (data) => {
+            this.handleIncomingData(data);
+        });
+
+        this.peer.on('error', (err) => {
+            console.error('Peer connection error:', err);
+            this.showToast('Connection failed. Please try again.', 'error');
+        });
+    }
+
+    handleSignal(data) {
+        if (this.peer) {
+            this.peer.signal(data.signal);
+        }
+    }
+
+    sendFiles() {
+        if (!this.peer || !this.selectedFiles.length) return;
+
+        const statusMessage = document.getElementById('status-message');
+        const progressBar = document.getElementById('progress-bar');
+        
+        if (statusMessage) {
+            statusMessage.textContent = 'Sending files...';
+            statusMessage.className = 'status-transferring';
+        }
+        
+        if (progressBar) {
+            progressBar.classList.remove('hidden');
+        }
+
+        let fileIndex = 0;
+        let totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
+        let sentSize = 0;
+
+        const sendNextFile = () => {
+            if (fileIndex >= this.selectedFiles.length) {
+                // All files sent
+                this.peer.send(JSON.stringify({ type: 'complete' }));
+                this.handleTransferComplete();
+                return;
+            }
+
+            const file = this.selectedFiles[fileIndex];
+            const chunkSize = 16384; // 16KB chunks
+            let offset = 0;
+
+            // Send file metadata
+            this.peer.send(JSON.stringify({
+                type: 'file-start',
+                name: file.name,
+                size: file.size,
+                type: file.type
+            }));
+
+            const sendChunk = () => {
+                const reader = new FileReader();
+                const slice = file.slice(offset, offset + chunkSize);
+
+                reader.onload = (e) => {
+                    this.peer.send(e.target.result);
+                    offset += chunkSize;
+                    sentSize += Math.min(chunkSize, file.size - (offset - chunkSize));
+
+                    // Update progress
+                    const progress = (sentSize / totalSize) * 100;
+                    const progressFill = document.querySelector('.progress-fill');
+                    if (progressFill) {
+                        progressFill.style.width = progress + '%';
+                    }
+
+                    if (offset < file.size) {
+                        sendChunk();
+                    } else {
+                        // File complete
+                        this.peer.send(JSON.stringify({ type: 'file-end' }));
+                        fileIndex++;
+                        sendNextFile();
+                    }
+                };
+
+                reader.readAsArrayBuffer(slice);
+            };
+
+            sendChunk();
+        };
+
+        sendNextFile();
+    }
+
+    handleIncomingData(data) {
+        try {
+            // Try to parse as JSON (metadata)
+            const message = JSON.parse(data);
+            
+            const receiveMessage = document.getElementById('receive-message');
+            const receiveProgressBar = document.getElementById('receive-progress-bar');
+            
+            switch (message.type) {
+                case 'file-start':
+                    this.currentReceivingFile = {
+                        name: message.name,
+                        size: message.size,
+                        type: message.type,
+                        chunks: []
+                    };
+                    
+                    if (receiveMessage) {
+                        receiveMessage.textContent = `Receiving: ${message.name}`;
+                        receiveMessage.className = 'status-transferring';
+                    }
+                    
+                    if (receiveProgressBar) {
+                        receiveProgressBar.classList.remove('hidden');
+                    }
+                    break;
+                
+                case 'file-end':
+                    this.completeFileReceive();
+                    break;
+                
+                case 'complete':
+                    this.handleReceiveComplete();
+                    break;
+            }
+        } catch (e) {
+            // Binary data (file chunk)
+            if (this.currentReceivingFile) {
+                this.currentReceivingFile.chunks.push(data);
+                
+                // Update progress
+                const received = this.currentReceivingFile.chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+                const progress = (received / this.currentReceivingFile.size) * 100;
+                
+                const progressFill = document.querySelector('#receive-progress-bar .progress-fill');
+                if (progressFill) {
+                    progressFill.style.width = progress + '%';
+                }
+            }
+        }
+    }
+
+    completeFileReceive() {
+        if (!this.currentReceivingFile) return;
+
+        // Combine all chunks
+        const totalSize = this.currentReceivingFile.chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+        const combinedArray = new Uint8Array(totalSize);
+        let offset = 0;
+
+        this.currentReceivingFile.chunks.forEach(chunk => {
+            combinedArray.set(new Uint8Array(chunk), offset);
+            offset += chunk.byteLength;
+        });
+
+        // Create blob and download link
+        const blob = new Blob([combinedArray], { type: this.currentReceivingFile.type });
+        const file = {
+            name: this.currentReceivingFile.name,
+            size: this.currentReceivingFile.size,
+            blob: blob,
+            url: URL.createObjectURL(blob)
+        };
+
+        this.receivedFiles.push(file);
+        this.displayReceivedFile(file);
+        
+        this.currentReceivingFile = null;
+    }
+
+    displayReceivedFile(file) {
+        const receivedFilesDiv = document.getElementById('received-files');
+        const fileList = document.getElementById('received-file-list');
+        
+        if (!receivedFilesDiv || !fileList) return;
+        
+        // Check if file already exists in both the display and receivedFiles array
+        const existsInArray = this.receivedFiles.some(existingFile => 
+            existingFile.name === file.name && existingFile.size === file.size
+        );
+        
+        const existsInDisplay = Array.from(fileList.querySelectorAll('.file-name'))
+            .some(element => element.textContent === file.name);
+        
+        if (existsInArray && existsInDisplay) {
+            console.log('File already displayed:', file.name);
+            return; // File already displayed, don't add again
+        }
+        
+        receivedFilesDiv.classList.remove('hidden');
+        
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+        fileItem.innerHTML = `
+            <div class="file-info">
+                <i class="fas fa-file"></i>
+                <span class="file-name">${file.name}</span>
+                <span class="file-size">(${this.formatFileSize(file.size)})</span>
+            </div>
+            <a href="${file.url}" download="${file.name}" class="btn btn-primary">
+                <i class="fas fa-download"></i> Download
+            </a>
+        `;
+        fileList.appendChild(fileItem);
+        
+        // Show download all button if there are multiple files
+        const downloadAllBtn = document.getElementById('download-all-btn');
+        if (this.receivedFiles.length > 1 && downloadAllBtn) {
+            downloadAllBtn.classList.remove('hidden');
+        }
+    }
+
+    handleTransferComplete() {
+        const statusMessage = document.getElementById('status-message');
+        if (statusMessage) {
+            statusMessage.textContent = 'Transfer completed successfully!';
+            statusMessage.className = 'status-completed';
+        }
+        
+        this.showToast('Files sent successfully!', 'success');
+        
+        // Log transfer stats
+        const totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
+        fetch('http://localhost:5000/api/files/log-transfer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                code: this.currentCode,
+                fileCount: this.selectedFiles.length,
+                totalSize: totalSize
+            })
+        }).catch(console.error);
+    }
+
+    handleReceiveComplete() {
+        const receiveMessage = document.getElementById('receive-message');
+        if (receiveMessage) {
+            receiveMessage.textContent = 'All files received successfully!';
+            receiveMessage.className = 'status-completed';
+        }
+        
+        this.showToast(`Received ${this.receivedFiles.length} files successfully!`, 'success');
+    }
+
+    simulateLocalTransfer() {
+        // For self-connections, directly transfer files locally
+        if (!this.selectedFiles || this.selectedFiles.length === 0) {
+            this.showToast('No files selected for transfer', 'error');
+            return;
+        }
+
+        // Clear any existing received files to prevent duplicates
+        this.clearReceivedFiles();
+
+        const statusMessage = document.getElementById('status-message');
+        const progressBar = document.getElementById('progress-bar');
+        const receiveMessage = document.getElementById('receive-message');
+        const receiveProgressBar = document.getElementById('receive-progress-bar');
+        
+        if (statusMessage) {
+            statusMessage.textContent = 'Transferring files locally...';
+            statusMessage.className = 'status-transferring';
+        }
+        
+        if (progressBar) {
+            progressBar.classList.remove('hidden');
+        }
+        
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Receiving files...';
+            receiveMessage.className = 'status-transferring';
+        }
+        
+        if (receiveProgressBar) {
+            receiveProgressBar.classList.remove('hidden');
+        }
+
+        // Simulate transfer with progress
+        let progress = 0;
+        const interval = setInterval(() => {
+            progress += 10;
+            
+            const progressFill = document.querySelector('.progress-fill');
+            const receiveProgressFill = document.querySelector('#receive-progress-bar .progress-fill');
+            
+            if (progressFill) {
+                progressFill.style.width = progress + '%';
+            }
+            
+            if (receiveProgressFill) {
+                receiveProgressFill.style.width = progress + '%';
+            }
+
+            if (progress >= 100) {
+                clearInterval(interval);
+                  // Process each file only once
+                this.selectedFiles.forEach(file => {
+                    const fileObj = {
+                        name: file.name,
+                        size: file.size,
+                        blob: file,
+                        url: URL.createObjectURL(file)
+                    };
+                    
+                    // Add to receivedFiles array only if not already present
+                    const exists = this.receivedFiles.some(existingFile => 
+                        existingFile.name === file.name && existingFile.size === file.size
+                    );
+                    
+                    if (!exists) {
+                        this.receivedFiles.push(fileObj);
+                    }
+                    
+                    // Display the file (displayReceivedFile will handle duplicates)
+                    this.displayReceivedFile(fileObj);
+                });
+
+                // Complete the transfer
+                this.handleTransferComplete();
+                this.handleReceiveComplete();
+            }
+        }, 200);
+    }
+
+    resetTransfer() {
+        // Clear received files display
+        this.clearReceivedFiles();
+        
+        // Show upload area again and hide file details
+        const uploadArea = document.getElementById('upload-area');
+        const selectedFilesSection = document.getElementById('selected-files-section');
+        
+        if (uploadArea) uploadArea.classList.remove('hidden');
+        if (selectedFilesSection) selectedFilesSection.classList.add('hidden');
+        
+        // Reset old UI elements (keeping them hidden)
+        const elements = [
+            'selected-files', 'transfer-code', 'receive-status', 
+            'progress-bar', 'receive-progress-bar', 'transfer-actions', 
+            'cancel-receive-btn', 'download-all-btn', 'reset-actions'
+        ];
+        
+        elements.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.classList.add('hidden');
+        });
+        
+        // Clear data
+        this.selectedFiles = [];
+        this.currentCode = null;
+        this.receivedFiles = [];
+        this.currentReceivingFile = null;
+        
+        // Reset inputs
+        const fileInput = document.getElementById('file-input');
+        const receiveCodeInput = document.getElementById('receive-code-input');
+        
+        if (fileInput) fileInput.value = '';
+        if (receiveCodeInput) receiveCodeInput.value = '';
+        
+        // Reset progress bars
+        document.querySelectorAll('.progress-fill').forEach(bar => {
+            bar.style.width = '0%';
+        });
+        
+        this.showToast('Transfer reset successfully', 'info');
+    }
+
+    clearReceivedFiles() {
+        // Clear the received files list UI
+        const fileList = document.getElementById('received-file-list');
+        if (fileList) {
+            fileList.innerHTML = '';
+        }
+        
+        // Hide received files section
+        const receivedFiles = document.getElementById('received-files');
+        const downloadAllBtn = document.getElementById('download-all-btn');
+        
+        if (receivedFiles) receivedFiles.classList.add('hidden');
+        if (downloadAllBtn) downloadAllBtn.classList.add('hidden');
+        
+        // Revoke object URLs to free memory
+        this.receivedFiles.forEach(file => {
+            if (file.url) {
+                URL.revokeObjectURL(file.url);
+            }
+        });
+        
+        // Clear the array
+        this.receivedFiles = [];
+    }
+
+    cancelTransfer() {
+        if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+        }
+        
+        // Update status
+        const statusMessage = document.getElementById('status-message');
+        const transferActions = document.getElementById('transfer-actions');
+        
+        if (statusMessage) {
+            statusMessage.textContent = 'Transfer cancelled';
+            statusMessage.className = 'status-error';
+        }
+        
+        // Show reset option
+        if (transferActions) {
+            transferActions.classList.remove('hidden');
+        }
+        
+        this.showToast('Transfer cancelled', 'warning');
+    }
+
+    cancelReceive() {
+        if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+        }
+        
+        // Update status
+        const receiveMessage = document.getElementById('receive-message');
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Receive cancelled';
+            receiveMessage.className = 'status-error';
+        }
+        
+        this.clearReceivedFiles();
+        this.showToast('Receive cancelled', 'warning');
+    }
+
+    downloadAllFiles() {
+        if (this.receivedFiles.length === 0) {
+            this.showToast('No files to download', 'warning');
+            return;
+        }
+        
+        this.receivedFiles.forEach(file => {
+            const link = document.createElement('a');
+            link.href = file.url;
+            link.download = file.name;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+        
+        this.showToast(`Downloaded ${this.receivedFiles.length} files`, 'success');
+    }
+
+    // QR Code Scanner
+    startQRScanner() {
+        const video = document.getElementById('camera-video');
+        const canvas = document.getElementById('camera-canvas');
+        const cameraSection = document.getElementById('camera-section');
+        
+        if (!video || !canvas || !cameraSection) return;
+        
+        const context = canvas.getContext('2d');
+        
+        cameraSection.classList.remove('hidden');
+        
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+            .then(stream => {
+                video.srcObject = stream;
+                this.scanQRCode(video, canvas, context);
+            })
+            .catch(err => {
+                console.error('Error accessing camera:', err);
+                this.showToast('Unable to access camera', 'error');
+            });
+    }
+
+    scanQRCode(video, canvas, context) {
+        const scan = () => {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height);
+                
+                if (code) {
+                    // Extract code from URL
+                    const match = code.data.match(/\/receive\/(\d{6})/);
+                    if (match) {
+                        const receiveCodeInput = document.getElementById('receive-code-input');
+                        if (receiveCodeInput) {
+                            receiveCodeInput.value = match[1];
+                        }
+                        this.stopQRScanner();
+                        this.showToast('QR code scanned successfully!', 'success');
+                        return;
+                    }
+                }
+            }
+            
+            const cameraSection = document.getElementById('camera-section');
+            if (cameraSection && !cameraSection.classList.contains('hidden')) {
+                requestAnimationFrame(scan);
+            }
+        };
+        
+        scan();
+    }
+
+    stopQRScanner() {
+        const video = document.getElementById('camera-video');
+        const cameraSection = document.getElementById('camera-section');
+        
+        if (!video || !cameraSection) return;
+        
+        const stream = video.srcObject;
+        
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
+        
+        cameraSection.classList.add('hidden');
+    }
+
+    // Utility functions
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    showToast(message, type = 'info') {
+        const toastContainer = document.getElementById('toast-container');
+        if (!toastContainer) return;
+        
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        
+        // Different icons based on toast type
+        let icon = 'info-circle';
+        switch(type) {
+            case 'success': icon = 'check-circle'; break;
+            case 'error': icon = 'exclamation-circle'; break;
+            case 'warning': icon = 'exclamation-triangle'; break;
+        }
+        
+        toast.innerHTML = `
+            <div class="toast-icon">
+                <i class="fas fa-${icon}"></i>
+            </div>
+            <div class="toast-content">
+                <p>${message}</p>
+            </div>
+        `;
+        
+        toastContainer.appendChild(toast);
+        
+        // Animate entry
+        setTimeout(() => {
+            toast.classList.add('show');
+        }, 10);
+        
+        // Auto remove
+        setTimeout(() => {
+            toast.classList.remove('show');
+            toast.classList.add('hide');
+            setTimeout(() => {
+                toast.remove();
+            }, 300);
+        }, 3000);
+    }
+
+    showFilePreview() {
+        // Show preview of files that will be received
+        const receiveMessage = document.getElementById('receive-message');
+        const receiveStatus = document.getElementById('receive-status');
+        
+        if (!receiveMessage || !receiveStatus) return;
+        
+        receiveStatus.classList.remove('hidden');
+        
+        // Create a preview section
+        let previewSection = document.getElementById('file-preview');
+        if (!previewSection) {
+            previewSection = document.createElement('div');
+            previewSection.id = 'file-preview';
+            previewSection.className = 'file-preview';
+            receiveStatus.appendChild(previewSection);
+        }
+        
+        previewSection.innerHTML = `
+            <h4>Files to be received (${this.selectedFiles.length}):</h4>
+            <div class="preview-file-list">
+                ${this.selectedFiles.map(file => `
+                    <div class="preview-file-item">
+                        <i class="fas fa-file"></i>
+                        <span class="file-name">${file.name}</span>
+                        <span class="file-size">(${this.formatFileSize(file.size)})</span>
+                    </div>
+                `).join('')}
+            </div>
+            <div class="total-size">
+                Total size: ${this.formatFileSize(this.selectedFiles.reduce((sum, file) => sum + file.size, 0))}
+            </div>
+        `;
+    }
+}
+
+// Initialize the app when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    window.app = new SendAnywhereApp();
+});

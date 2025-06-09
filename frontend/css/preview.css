@@ -1,0 +1,896 @@
+/* File Preview Section Styles */
+.file-preview-section {
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    margin-bottom: 15px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.file-preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.file-counter {
+    font-size: 0.8rem;
+    color: #666666;
+    font-weight: 500;
+}
+
+.file-nav-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.nav-btn {
+    width: 36px;
+    height: 36px;
+    border: 1px solid #d0d0d0;
+    background: #ffffff;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    color: #555555;
+    font-size: 0.9rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    position: relative;
+    overflow: hidden;
+}
+
+.nav-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    background: rgba(74, 144, 226, 0.1);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: all 0.3s ease;
+}
+
+.nav-btn:hover:not(:disabled) {
+    background: #f5f5f5;
+    border-color: #bbb;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.nav-btn:hover:not(:disabled)::before {
+    width: 100%;
+    height: 100%;
+}
+
+.nav-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    filter: grayscale(50%);
+}
+
+.nav-btn:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.preview-container {
+    position: relative;
+    background: #ffffff;
+    height: 250px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Content-specific preview container heights */
+.preview-container.image-container,
+.preview-container.video-container {
+    height: 250px;
+}
+
+.preview-container.document-container {
+    height: 240px; /* Significantly reduced to ensure no overlap */
+    background: #ffffff;
+}
+
+.preview-content {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+/* For video previews, remove centering to fill container */
+.preview-container.video-container .preview-content {
+    align-items: stretch;
+    justify-content: stretch;
+}
+
+/* Video Preview */
+.video-preview {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Image Preview */
+.image-preview {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* Document Preview */
+.document-preview {
+    width: 100%;
+    height: 300px;
+    max-height: 300px;
+    background: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.document-canvas {
+    max-width: 100%;
+    max-height: 100%;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* REMOVED - Duplicate rule consolidated below */
+
+/* Page Navigation - Modern and Stylish Design */
+.page-nav-controls {
+    position: relative;
+    margin: 35px auto 0; /* Maximum spacing to ensure complete separation */
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(17, 17, 17, 0.92);
+    padding: 8px 16px;
+    border-radius: 24px;
+    color: #ffffff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        0 2px 8px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    z-index: 100;
+    min-width: 160px;
+    width: fit-content;
+    justify-content: center;
+    animation: slideInFromBottom 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+
+.page-nav-controls:hover {
+    background: rgba(20, 20, 20, 0.95);
+    transform: translateY(-2px);
+    box-shadow: 
+        0 12px 40px rgba(0, 0, 0, 0.4),
+        0 4px 12px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    scale: 1.02;
+}
+
+.page-nav-controls .nav-btn {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.08));
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    font-size: 0.85rem;
+    position: relative;
+    backdrop-filter: blur(10px);
+    box-shadow: 
+        0 2px 8px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.page-nav-controls .nav-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(74, 144, 226, 0.8), rgba(56, 189, 248, 0.8));
+    border-radius: 50%;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: -1;
+}
+
+.page-nav-controls .nav-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.15));
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: scale(1.1) translateY(-1px);
+    box-shadow: 
+        0 4px 16px rgba(0, 0, 0, 0.3),
+        0 0 20px rgba(74, 144, 226, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.page-nav-controls .nav-btn:hover:not(:disabled)::before {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.page-nav-controls .nav-btn:hover:not(:disabled) i {
+    color: #ffffff;
+    text-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+}
+
+.page-nav-controls .nav-btn:disabled {
+    opacity: 0.25;
+    filter: grayscale(100%);
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.05);
+    transform: none;
+    box-shadow: none;
+}
+
+.page-nav-controls .nav-btn:active:not(:disabled) {
+    transform: scale(0.95) translateY(0);
+    transition: all 0.15s ease;
+}
+
+.page-nav-controls .nav-btn i {
+    transition: all 0.3s ease;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+
+#page-info {
+    min-width: 90px;
+    text-align: center;
+    user-select: none;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+    font-size: 0.85rem;
+    padding: 0 12px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    margin: 0 4px;
+    line-height: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+#page-info::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    transition: left 0.6s ease;
+}
+
+#page-info:hover::before {
+    left: 100%;
+}
+
+.preview-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    background: #f8f9fa;
+    border-top: 1px solid #e0e0e0;
+}
+
+.file-type-icon {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #666666;
+    text-align: center;
+}
+
+.file-type-icon i {
+    font-size: 3.5rem;
+    margin-bottom: 15px;
+    opacity: 0.7;
+    transition: all 0.3s ease;
+}
+
+.file-type-icon:hover i {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+.preview-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #666666;
+    gap: 10px;
+}
+
+.preview-loading .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(74, 144, 226, 0.1);
+    border-left-color: #4a90e2;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Enhanced Document Preview */
+.enhanced-document-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    background: #ffffff;
+    color: #333333;
+    text-align: center;
+    min-height: 300px;
+}
+
+.document-icon-large {
+    margin-bottom: 20px;
+}
+
+.document-icon-large i {
+    font-size: 4rem;
+    color: #666666;
+    opacity: 0.8;
+}
+
+.document-details {
+    margin-bottom: 25px;
+    max-width: 400px;
+}
+
+.document-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #000000;
+    word-break: break-word;
+}
+
+.document-type {
+    font-size: 0.9rem;
+    color: #666666;
+    margin-bottom: 5px;
+    font-weight: 500;
+}
+
+.document-size {
+    font-size: 0.9rem;
+    color: #888888;
+    margin-bottom: 10px;
+}
+
+.document-description {
+    font-size: 0.85rem;
+    color: #999999;
+    line-height: 1.4;
+    margin-bottom: 0;
+}
+
+.document-actions {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.btn-preview-action {
+    padding: 8px 16px;
+    border: 1px solid #e0e0e0;
+    background: #f8f9fa;
+    color: #666666;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-preview-action:hover {
+    background: #e9ecef;
+    border-color: #ced4da;
+    color: #333333;
+}
+
+.preview-limitation {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: #aaa;
+    padding: 12px 20px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+}
+
+.preview-limitation i {
+    opacity: 0.7;
+}
+
+/* Text Preview Styles */
+.text-preview {
+    background: #ffffff;
+    padding: 20px;
+    border-radius: 8px;
+    margin: 10px;
+    border: 1px solid #e0e0e0;
+    max-height: 350px;
+    overflow-y: auto;
+}
+
+.text-content {
+    text-align: left;
+}
+
+.text-content pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: #333333;
+    margin: 0;
+}
+
+.text-info {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #e0e0e0;
+    font-size: 0.8rem;
+    color: #666666;
+    text-align: center;
+    font-style: italic;
+}
+
+/* Document Info Modal Styles */
+.document-info-modal {
+    background: #ffffff;
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    max-width: 400px;
+}
+
+.document-info-modal h4 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333333;
+    font-size: 1.1rem;
+}
+
+.info-row {
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+    text-align: left;
+}
+
+.info-row strong {
+    color: #666666;
+    display: inline-block;
+    width: 100px;
+}
+
+/* File Indicator for Navigation Feedback */
+.file-indicator {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.8);
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 15px 25px;
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+    z-index: 10000;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.file-indicator.show {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.indicator-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+}
+
+.indicator-content i {
+    font-size: 1.5rem;
+    opacity: 0.8;
+}
+
+.indicator-content span {
+    font-weight: 500;
+    font-size: 0.9rem;
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.indicator-content small {
+    opacity: 0.7;
+    font-size: 0.75rem;
+}
+
+/* Modern Page Navigation Animations and Enhancements */
+
+/* Slide-in animation when page navigation appears */
+@keyframes slideInFromBottom {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+.page-nav-controls {
+    animation: slideInFromBottom 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+/* Ripple effect for button clicks */
+.page-nav-controls .nav-btn {
+    position: relative;
+    overflow: hidden;
+}
+
+.page-nav-controls .nav-btn::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: width 0.3s ease, height 0.3s ease;
+}
+
+.page-nav-controls .nav-btn:active:not(:disabled)::after {
+    width: 40px;
+    height: 40px;
+}
+
+/* Page number change animation */
+@keyframes pageNumberChange {
+    0% { transform: translateY(0); opacity: 1; }
+    50% { transform: translateY(-10px); opacity: 0.3; }
+    100% { transform: translateY(0); opacity: 1; }
+}
+
+#page-info.changing {
+    animation: pageNumberChange 0.3s ease;
+}
+
+/* Glowing effect for active navigation */
+.page-nav-controls:hover {
+    animation: glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+    from {
+        box-shadow: 
+            0 12px 40px rgba(0, 0, 0, 0.4),
+            0 4px 12px rgba(0, 0, 0, 0.3),
+            inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    }
+    to {
+        box-shadow: 
+            0 12px 40px rgba(0, 0, 0, 0.4),
+            0 4px 12px rgba(0, 0, 0, 0.3),
+            inset 0 1px 0 rgba(255, 255, 255, 0.15),
+            0 0 30px rgba(74, 144, 226, 0.2);
+    }
+}
+
+/* Pulse animation for when navigation becomes available */
+@keyframes pulse {
+    0% { transform: translateX(-50%) scale(1); }
+    50% { transform: translateX(-50%) scale(1.05); }
+    100% { transform: translateX(-50%) scale(1); }
+}
+
+.page-nav-controls.pulse {
+    animation: pulse 0.6s ease-in-out;
+}
+
+/* Enhanced button hover states with smooth transitions */
+.page-nav-controls .nav-btn {
+    will-change: transform, box-shadow, background;
+}
+
+.page-nav-controls .nav-btn:hover:not(:disabled) {
+    animation: buttonHover 0.3s ease forwards;
+}
+
+@keyframes buttonHover {
+    0% {
+        transform: scale(1) translateY(0);
+    }
+    50% {
+        transform: scale(1.1) translateY(-2px);
+    }
+    100% {
+        transform: scale(1.1) translateY(-1px);
+    }
+}
+
+/* Loading state for page transitions */
+.page-nav-controls.loading .nav-btn {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+.page-nav-controls.loading #page-info {
+    opacity: 0.7;
+    animation: loadingPulse 1s ease-in-out infinite;
+}
+
+@keyframes loadingPulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 0.3; }
+}
+
+/* Dark mode optimizations */
+@media (prefers-color-scheme: dark) {
+    .page-nav-controls {
+        background: rgba(10, 10, 10, 0.95);
+        border-color: rgba(255, 255, 255, 0.12);
+    }
+    
+    .page-nav-controls .nav-btn {
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+        border-color: rgba(255, 255, 255, 0.1);
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .page-nav-controls {
+        background: rgba(0, 0, 0, 0.98);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+    }
+    
+    .page-nav-controls .nav-btn {
+        border: 2px solid rgba(255, 255, 255, 0.5);
+        background: rgba(255, 255, 255, 0.2);
+    }
+    
+    .page-nav-controls .nav-btn:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.4);
+        border-color: rgba(255, 255, 255, 0.8);
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .page-nav-controls,
+    .page-nav-controls .nav-btn,
+    #page-info {
+        transition: none;
+        animation: none;
+    }
+    
+    .page-nav-controls:hover {
+        animation: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .nav-btn {
+        width: 28px;
+        height: 28px;
+        font-size: 0.75rem;
+    }
+    
+    .page-nav-controls {
+        gap: 6px;
+        padding: 6px 12px;
+        font-size: 0.75rem;
+        border-radius: 20px;
+        min-width: 140px;
+        bottom: 15px;
+    }
+    
+    .page-nav-controls .nav-btn {
+        width: 28px;
+        height: 28px;
+        font-size: 0.75rem;
+    }
+    
+    #page-info {
+        min-width: 70px;
+        font-size: 0.75rem;
+        line-height: 24px;
+        height: 24px;
+        padding: 0 8px;
+        border-radius: 12px;
+    }
+    
+    .preview-footer::after {
+        display: none;
+    }
+}
+
+@media (max-width: 480px) {
+    .page-nav-controls {
+        gap: 4px;
+        padding: 4px 8px;
+        font-size: 0.7rem;
+        border-radius: 16px;
+        min-width: 120px;
+        bottom: 10px;
+    }
+    
+    .page-nav-controls .nav-btn {
+        width: 24px;
+        height: 24px;
+        font-size: 0.7rem;
+    }
+    
+    #page-info {
+        min-width: 60px;
+        font-size: 0.7rem;
+        line-height: 20px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 10px;
+    }
+}
+
+/* PDF Preview Error Styles */
+.preview-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+    color: #666;
+    background: rgba(255, 243, 205, 0.3);
+    border: 2px dashed #e0a800;
+    border-radius: 8px;
+    margin: 20px;
+}
+
+.preview-error i {
+    font-size: 3rem;
+    color: #e0a800;
+    margin-bottom: 15px;
+}
+
+.preview-error p {
+    font-size: 1.1rem;
+    font-weight: 500;
+    margin: 0 0 8px 0;
+    color: #333;
+}
+
+.preview-error small {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    margin: 0;
+}
+
+/* PDF Preview Container Styles */
+#pdf-preview-container {
+    position: relative;
+    width: 100%;
+    height: 240px; /* Match the document container height */
+    max-height: 240px; /* Ensure it doesn't exceed container */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8f9fa;
+    border-radius: 8px;
+    overflow: hidden; /* Prevent content from overflowing */
+}
+
+/* PDF Canvas Styles - CONSOLIDATED RULE */
+#pdf-canvas {
+    max-width: 100%;
+    max-height: 200px; /* Significantly reduced to ensure clear separation */
+    border-radius: 4px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    background: white;
+    display: none; /* Initially hidden until loaded */
+    margin: 0 auto; /* Center the canvas */
+}
+
+/* PDF Loading Styles */
+.pdf-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+    font-weight: 500;
+    z-index: 10;
+}
+
+.pdf-loading::before {
+    content: '';
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(74, 144, 226, 0.1);
+    border-left-color: #4a90e2;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 10px;
+}
+
+.generic-file-preview .file-info {
+    font-size: 0.85rem;
+    color: #999999;
+    line-height: 1.4;
+    margin-bottom: 0;
+}

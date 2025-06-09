@@ -1,0 +1,19 @@
+{
+  "name": "sendanywhere-clone-frontend",
+  "version": "1.0.0",
+  "description": "Frontend for SendAnywhere Clone - Instant file transfer with 6-digit codes",
+  "main": "index.html",
+  "scripts": {
+    "start": "cd ../backend && npm run dev"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "keywords": [
+    "file-transfer",
+    "p2p",
+    "webrtc",
+    "file-sharing"
+  ],
+  "author": "",
+  "license": "ISC"
+}

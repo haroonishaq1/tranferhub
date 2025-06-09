@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title>TransferHub - Send Files Instantly & Securely</title>    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/inline-files.css">
+    <link rel="stylesheet" href="css/preview.css">
+    <link rel="stylesheet" href="css/animations.css">
+    <link rel="stylesheet" href="css/header.css">
+    <link rel="stylesheet" href="css/footer.css">
+    <link rel="stylesheet" href="css/security.css">    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet"><!-- PDF.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+        // Configure PDF.js worker
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            console.log('PDF.js configured successfully');
+        } else {
+            console.error('PDF.js failed to load');
+            alert('PDF preview may not work properly - PDF.js library not loaded');
+        }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Modern Header -->
+    <header class="modern-header" id="modern-header">
+        <div class="header-container">
+            <div class="logo">
+                <h1>TransferHub</h1>
+            </div>
+            <nav class="nav-menu" id="nav-menu">
+                <a href="#home" class="nav-link">Home</a>
+                <a href="#features-section" class="nav-link">Features</a>
+                <a href="#security-section" class="nav-link">Security</a>
+                <a href="#contact" class="nav-link">Contact</a>
+            </nav>
+            <div class="mobile-menu-toggle" id="mobile-menu-toggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>    </header>
+
+    <div class="container" id="home">
+        <!-- Bubble Animations Background - Only for main content -->
+        <div id="bubble-container" class="bubble-container-main"></div>
+        
+        <main>
+            <div class="main-actions">
+                <!-- Send Section -->                <section id="send-section" class="action-card">
+                    <h2>Send Files</h2>
+                    <p class="section-desc">Upload files and get download codes</p>
+                    
+                    <div class="send-section-content">
+                        <!-- File Drop Zone (will be visible initially) -->
+                        <div id="upload-area">
+                            <div class="file-drop-zone" id="file-drop-zone">
+                                <div class="drop-message">
+                                    <i class="fas fa-cloud-upload-alt"></i>
+                                    <p>Drag & drop files here, or click to select files</p>
+                                    <small>Supports videos, images, documents and other formats up to 50GB</small>
+                                    <input type="file" id="file-input" multiple hidden>
+                                </div>
+                            </div>
+                            <div class="action-button">
+                                <button id="generate-code-btn" class="btn btn-primary">Upload Files</button>
+                            </div>
+                        </div>
+                          <!-- Simple File List (shown after file selection, before upload) -->
+                        <div id="selected-files" class="selected-files hidden">
+                            <div class="selected-files-header">
+                                <h3>Selected Files:</h3>
+                            </div>
+                            <div id="file-list"></div>
+                        </div>                        <!-- Selected Files Section with All Components (hidden initially) -->
+                        <div id="selected-files-section" class="selected-files-section hidden">
+                            <div class="selected-files-header">
+                                <h3>Selected Files</h3>
+                            </div>                            <div class="selected-files-content">
+                                <!-- File Preview Section -->
+                                <div class="file-preview-section">
+                                    <div class="file-preview-header">
+                                        <div class="file-counter">
+                                            <span id="current-file-info">File 1 of 1</span>
+                                        </div>
+                                        <div class="file-nav-controls">
+                                            <button id="prev-file-btn" class="nav-btn" disabled>
+                                                <i class="fas fa-chevron-left"></i>
+                                            </button>
+                                            <button id="next-file-btn" class="nav-btn" disabled>
+                                                <i class="fas fa-chevron-right"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                      <div class="preview-container">
+                                        <div class="preview-content" id="preview-content">
+                                            <!-- Dynamic preview content will be inserted here -->
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Page/Slide navigation for documents -->
+                                    <div class="page-nav-controls hidden" id="page-nav-controls">
+                                        <button id="prev-page-btn" class="nav-btn">
+                                            <i class="fas fa-chevron-left"></i>
+                                        </button>
+                                        <span id="page-info">Page 1 of 1</span>
+                                        <button id="next-page-btn" class="nav-btn">
+                                            <i class="fas fa-chevron-right"></i>
+                                        </button>
+                                    </div>
+                                      <div class="preview-footer">
+                                        <span id="preview-type-info">Video preview available</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="file-detail">
+                                    <div class="file-detail-row">
+                                        <span class="file-detail-label">File Name:</span>
+                                        <span class="file-detail-value" id="file-detail-name"></span>
+                                    </div>
+                                    <div class="file-detail-row">
+                                        <span class="file-detail-label">Size:</span>
+                                        <span class="file-detail-value" id="file-detail-size"></span>
+                                    </div>
+                                    <div class="file-detail-row">
+                                        <span class="file-detail-label">Type:</span>
+                                        <span class="file-detail-value" id="file-detail-type"></span>
+                                    </div>
+                                </div>
+                                  <div class="verification-code-display">
+                                    <h3>Your 6-digit verification code:</h3>
+                                    <div class="code-digits" id="code-digits"></div>
+                                </div>
+                                
+                                <div class="transfer-actions">
+                                    <button id="copy-code-btn" class="btn btn-copy-code">
+                                        <i class="fas fa-copy"></i> Copy Code
+                                    </button>
+                                </div>
+                                
+                                <div class="transfer-status">
+                                    <p id="status-message">Waiting for receiver...</p>
+                                    <div class="new-transfer-actions">
+                                        <button id="new-transfer-btn" class="btn btn-outline">
+                                            <i class="fas fa-plus"></i> Make a New Transfer
+                                        </button>
+                                    </div>
+                                    <div class="progress-bar hidden" id="progress-bar">
+                                        <div class="progress-fill"></div>
+                                    </div>
+                                    <div class="transfer-actions hidden" id="reset-actions">
+                                        <button id="reset-transfer-btn" class="btn btn-secondary">
+                                            <i class="fas fa-refresh"></i> Start New Transfer
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Receive Section -->
+                <section id="receive-section" class="action-card">
+                    <h2>Receive Files</h2>
+                    <p class="section-desc">Enter 6-digit code to download files</p>
+                    <div class="receive-icon">
+                        <i class="fas fa-arrow-down"></i>
+                    </div>
+                    <div class="verification-heading">
+                        <h3>Enter verification code(s)</h3>
+                        <p>Enter the 6-digit verification code to download files directly to your Downloads folder</p>
+                    </div>
+                    <div class="code-input-section">
+                        <input type="text" id="receive-code-input" placeholder="e.g. 123456" maxlength="6">
+                        <button id="receive-btn" class="btn btn-primary">
+                            Download Files
+                        </button>
+                    </div>
+                    <div class="divider">
+                        <span>OR</span>
+                    </div>                    <div class="scan-qr-section">
+                        <button id="scan-qr-btn" class="btn btn-outline">
+                            Scan QR Code
+                        </button>
+                    </div>
+                      <!-- Received Files Display - moved inside receive section -->
+                    <div id="received-files" class="received-files hidden">
+                        <h3>Received Files:</h3>
+                        <div id="received-file-list"></div>
+                        <button id="download-all-btn" class="btn btn-primary hidden">
+                            <i class="fas fa-download"></i> Download All
+                        </button>
+                    </div>
+
+                    <!-- Receive Status - moved inside receive section -->
+                    <div id="receive-status" class="receive-status hidden">
+                        <p id="receive-message">Connecting...</p>
+                        <div class="progress-bar hidden" id="receive-progress-bar">
+                            <div class="progress-fill"></div>
+                        </div>
+                        <div class="receive-actions">
+                            <button id="cancel-receive-btn" class="btn btn-danger hidden">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Why Choose TransferHub Section -->
+            <section id="features-section">
+                <h2>Why Choose TransferHub</h2>
+                <p class="features-desc">Our platform offers a combination of security, ease of use, and powerful features that make file sharing simple and secure.</p>
+                
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-shield-alt"></i>
+                        </div>
+                        <h3>End-to-End Encryption</h3>
+                        <p>Your files are encrypted before they leave your device and can only be decrypted by the recipient.</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-expand-arrows-alt"></i>
+                        </div>
+                        <h3>No File Size Limit</h3>
+                        <p>Transfer files of any size, from small documents to large video files, all with the same ease.</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <h3>Auto Expiry</h3>
+                        <p>Files are automatically deleted after download or after a time period that you specify.</p>
+                    </div>
+                </div>            </section>
+
+            <!-- Security Section -->
+            <section id="security-section" class="security-section">
+                <div class="security-container">
+                    <div class="security-header">
+                        <h2>Enterprise-Grade Security</h2>
+                        <p>Your files are protected with military-grade encryption and advanced security protocols</p>
+                    </div>
+
+                    <div class="security-grid">
+                        <div class="security-card" data-security="encryption">
+                            <div class="security-icon">
+                                <i class="fas fa-lock"></i>
+                            </div>
+                            <h3>AES-256 Encryption</h3>
+                            <p>Military-grade encryption protects your files during transfer and storage</p>
+                            <div class="security-badge">
+                                <span>Bank-Level Security</span>
+                            </div>
+                        </div>
+
+                        <div class="security-card" data-security="transfer">
+                            <div class="security-icon">
+                                <i class="fas fa-shield-alt"></i>
+                            </div>
+                            <h3>Secure Transfer</h3>
+                            <p>End-to-end encryption ensures only you and your recipient can access the files</p>
+                            <div class="security-badge">
+                                <span>Zero Knowledge</span>
+                            </div>
+                        </div>
+
+                        <div class="security-card" data-security="privacy">
+                            <div class="security-icon">
+                                <i class="fas fa-user-shield"></i>
+                            </div>
+                            <h3>Privacy First</h3>
+                            <p>No registration required. Your files are automatically deleted after download</p>
+                            <div class="security-badge">
+                                <span>Anonymous</span>
+                            </div>
+                        </div>
+
+                        <div class="security-card" data-security="compliance">
+                            <div class="security-icon">
+                                <i class="fas fa-certificate"></i>
+                            </div>
+                            <h3>Compliance Ready</h3>
+                            <p>GDPR, HIPAA, and SOC 2 compliant for enterprise and healthcare use</p>
+                            <div class="security-badge">
+                                <span>Certified</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="trust-indicators">
+                        <div class="trust-item">
+                            <div class="trust-icon">
+                                <i class="fas fa-star"></i>
+                            </div>
+                            <div class="trust-content">
+                                <span class="trust-title">99.9% Uptime</span>
+                                <span class="trust-subtitle">Reliable Service</span>
+                            </div>
+                        </div>
+
+                        <div class="trust-item">
+                            <div class="trust-icon">
+                                <i class="fas fa-users"></i>
+                            </div>
+                            <div class="trust-content">
+                                <span class="trust-title">1M+ Users</span>
+                                <span class="trust-subtitle">Trusted Worldwide</span>
+                            </div>
+                        </div>
+
+                        <div class="trust-item">
+                            <div class="trust-icon">
+                                <i class="fas fa-download"></i>
+                            </div>
+                            <div class="trust-content">
+                                <span class="trust-title">50GB+ Files</span>
+                                <span class="trust-subtitle">Daily Transfers</span>
+                            </div>
+                        </div>
+
+                        <div class="trust-item">
+                            <div class="trust-icon">
+                                <i class="fas fa-clock"></i>
+                            </div>
+                            <div class="trust-content">
+                                <span class="trust-title">24/7 Support</span>
+                                <span class="trust-subtitle">Always Available</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="encryption-demo">
+                        <h3>See Encryption in Action</h3>
+                        <div class="demo-container">
+                            <div class="demo-step" data-step="1">
+                                <div class="step-number">1</div>
+                                <div class="step-content">
+                                    <h4>File Upload</h4>
+                                    <p>Your file is selected</p>
+                                </div>
+                            </div>
+                            <div class="demo-arrow">→</div>
+                            <div class="demo-step" data-step="2">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <h4>Local Encryption</h4>
+                                    <p>AES-256 encryption applied</p>
+                                </div>
+                            </div>
+                            <div class="demo-arrow">→</div>
+                            <div class="demo-step" data-step="3">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <h4>Secure Transfer</h4>
+                                    <p>Encrypted data transmitted</p>
+                                </div>
+                            </div>
+                            <div class="demo-arrow">→</div>
+                            <div class="demo-step" data-step="4">
+                                <div class="step-number">4</div>
+                                <div class="step-content">
+                                    <h4>Safe Delivery</h4>
+                                    <p>Recipient decrypts with code</p>
+                                </div>
+                            </div>
+                        </div>
+                        <button class="demo-button" id="start-encryption-demo">
+                            <i class="fas fa-play"></i>
+                            Start Demo
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modern Footer -->
+    <footer class="modern-footer" id="modern-footer">
+        <div class="footer-container">
+            <div class="footer-grid">
+                <div class="footer-section">
+                    <div class="footer-logo">
+                        <h3>TransferHub</h3>
+                        <p>Secure, fast, and reliable file transfers for everyone. Send files of any size with enterprise-grade security.</p>
+                    </div>
+                    <div class="social-links">
+                        <a href="#" class="social-link" data-platform="twitter">
+                            <i class="fab fa-twitter"></i>
+                        </a>
+                        <a href="#" class="social-link" data-platform="facebook">
+                            <i class="fab fa-facebook"></i>
+                        </a>
+                        <a href="#" class="social-link" data-platform="linkedin">
+                            <i class="fab fa-linkedin"></i>
+                        </a>
+                        <a href="#" class="social-link" data-platform="github">
+                            <i class="fab fa-github"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Quick Links</h4>
+                    <ul class="footer-links">
+                        <li><a href="#home">Home</a></li>
+                        <li><a href="#features-section">Features</a></li>
+                        <li><a href="#security-section">Security</a></li>
+                        <li><a href="#pricing">Pricing</a></li>
+                        <li><a href="#about">About Us</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Support</h4>
+                    <ul class="footer-links">
+                        <li><a href="#help">Help Center</a></li>
+                        <li><a href="#contact">Contact Us</a></li>
+                        <li><a href="#privacy">Privacy Policy</a></li>
+                        <li><a href="#terms">Terms of Service</a></li>
+                        <li><a href="#security">Security</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Stay Updated</h4>
+                    <p>Get the latest updates on new features and security improvements.</p>
+                    <form class="newsletter-form" id="newsletter-form">
+                        <div class="newsletter-input">
+                            <input type="email" placeholder="Enter your email" required>
+                            <button type="submit">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </form>
+                    <div class="contact-info">
+                        <div class="contact-item">
+                            <i class="fas fa-envelope"></i>
+                            <span>support@transferhub.com</span>
+                        </div>
+                        <div class="contact-item">
+                            <i class="fas fa-phone"></i>
+                            <span>+1 (555) 123-4567</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <div class="footer-bottom-content">
+                    <p>&copy; 2024 TransferHub. All rights reserved.</p>
+                    <div class="footer-bottom-links">
+                        <a href="#privacy">Privacy</a>
+                        <a href="#terms">Terms</a>
+                        <a href="#cookies">Cookies</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Newsletter Success Notification -->
+        <div class="newsletter-notification" id="newsletter-notification">
+            <div class="notification-content">
+                <i class="fas fa-check-circle"></i>
+                <span>Thanks for subscribing!</span>
+            </div>        </div>
+    </footer>
+
+    <!-- Hidden functionality sections - keeping for compatibility but not displaying -->
+            <div id="transfer-code" class="transfer-code hidden">
+                <h3>Transfer Code:</h3>
+                <div class="code-display">
+                    <span id="code-value"></span>
+                    <button id="copy-code-btn" class="btn btn-secondary">
+                        <i class="fas fa-copy"></i> Copy
+                    </button>
+                    <button id="cancel-transfer-btn" class="btn btn-danger">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                </div>
+                <div class="transfer-status">
+                    <p id="status-message">Waiting for receiver...</p>
+                    <div class="progress-bar hidden" id="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                    <div class="transfer-actions hidden" id="transfer-actions">
+                        <button id="reset-transfer-btn" class="btn btn-secondary">
+                            <i class="fas fa-refresh"></i> Start New Transfer
+                        </button>
+                    </div>
+                </div>
+            </div>
+              <div id="camera-section" class="camera-section hidden">
+                <video id="camera-video" autoplay></video>
+                <canvas id="camera-canvas" hidden></canvas>
+                <button id="stop-camera-btn" class="btn btn-danger">
+                    <i class="fas fa-times"></i> Stop Camera
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>    <!-- Scripts -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="js/animations.js"></script>
+    <script src="js/header.js"></script>
+    <script src="js/footer.js"></script>
+    <script src="js/security.js"></script>
+    <script src="js/app.js"></script>
+    
+    <script>
+        // Initialize new components when DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize bubble animations
+            const bubbleAnimations = new BubbleAnimations();
+            bubbleAnimations.init();
+
+            // Initialize modern header
+            const modernHeader = new ModernHeader();
+
+            // Initialize modern footer
+            const modernFooter = new ModernFooter();
+
+            // Initialize security section
+            const securitySection = new SecuritySection();
+        });
+    </script>
+</body>
+</html>
