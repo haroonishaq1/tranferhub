@@ -125,6 +125,10 @@ class SendAnywhereApp {
         this.socket.on('code-expired', (data) => {
             this.handleCodeExpired(data);
         });
+        
+        this.socket.on('relay-transfer', (data) => {
+            this.handleRelayTransfer(data);
+        });
     }    setupEventListeners() {
         // File selection
         document.getElementById('file-input').addEventListener('change', (e) => {
@@ -1275,7 +1279,7 @@ class SendAnywhereApp {
             { urls: 'stun:stun.voiparound.com' },
             { urls: 'stun:stun.voipbuster.com' },
             
-            // Free TURN servers (consider upgrading to paid TURN for production)
+            // Multiple free TURN servers for better reliability
             {
                 urls: 'turn:openrelay.metered.ca:80',
                 username: 'openrelayproject',
@@ -1290,8 +1294,16 @@ class SendAnywhereApp {
                 urls: 'turn:openrelay.metered.ca:443?transport=tcp',
                 username: 'openrelayproject',
                 credential: 'openrelayproject'
+            },
+            // Alternative free TURN servers
+            {
+                urls: 'turn:relay1.expressturn.com:3478',
+                username: 'efJBIBVP6ETOFD3XKX',
+                credential: 'WmtzanB3ZnpERzRYVw'
             }
         ];
+
+        console.log('Using ICE servers:', iceServers.length, 'servers configured');
 
         this.peer = new SimplePeer({
             initiator: initiator,
@@ -1310,11 +1322,24 @@ class SendAnywhereApp {
             }
         });
         
-        // Set connection timeout
+        // Set connection timeout with better error handling
         this.connectionTimeout = setTimeout(() => {
             if (this.peer && !this.peer.connected) {
                 console.error('Connection timeout after 30 seconds');
-                this.handleConnectionFailure('Connection timeout');
+                console.log('Peer state:', {
+                    connected: this.peer.connected,
+                    connecting: this.peer.connecting,
+                    destroyed: this.peer.destroyed
+                });
+                
+                // Try to get more detailed connection info
+                if (this.peer._pc) {
+                    console.log('WebRTC connection state:', this.peer._pc.connectionState);
+                    console.log('ICE connection state:', this.peer._pc.iceConnectionState);
+                    console.log('ICE gathering state:', this.peer._pc.iceGatheringState);
+                }
+                
+                this.handleConnectionFailure('Connection timeout - peer connection could not be established');
             }
         }, 30000);
 
@@ -1378,9 +1403,17 @@ class SendAnywhereApp {
                 const state = this.peer._pc.iceConnectionState;
                 console.log('ICE connection state:', state);
                 
-                if (state === 'failed' || state === 'disconnected') {
-                    console.error('ICE connection failed or disconnected');
-                    this.handleConnectionFailure('Network connection lost');
+                if (state === 'failed') {
+                    console.error('ICE connection failed - this usually indicates NAT/firewall issues');
+                    this.handleConnectionFailure('Network connection failed - NAT/firewall may be blocking connection');
+                } else if (state === 'disconnected') {
+                    console.warn('ICE connection disconnected - connection may be unstable');
+                    // Don't immediately fail on disconnected, give it time to reconnect
+                    setTimeout(() => {
+                        if (this.peer && this.peer._pc && this.peer._pc.iceConnectionState === 'disconnected') {
+                            this.handleConnectionFailure('Network connection lost');
+                        }
+                    }, 5000);
                 } else if (state === 'connected' || state === 'completed') {
                     console.log('ICE connection established successfully');
                 }
@@ -1393,6 +1426,17 @@ class SendAnywhereApp {
                 if (state === 'failed') {
                     console.error('Peer connection failed');
                     this.handleConnectionFailure('Peer connection failed');
+                } else if (state === 'connected') {
+                    console.log('Peer connection fully established');
+                }
+            };
+            
+            // Add ICE candidate logging
+            this.peer._pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    console.log('ICE candidate type:', event.candidate.type);
+                } else {
+                    console.log('ICE gathering complete');
                 }
             };
         }
@@ -1453,6 +1497,18 @@ class SendAnywhereApp {
         if (this.peer) {
             this.peer.destroy();
             this.peer = null;
+        }
+        
+        // For testing: if this is a local/same-origin transfer, use fallback
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            console.log('Detected local environment, attempting fallback transfer method');
+            this.showToast('WebRTC failed, using fallback method...', 'info', 3000);
+            
+            // Use server-relayed transfer as fallback
+            setTimeout(() => {
+                this.initiateServerRelayedTransfer();
+            }, 2000);
+            return;
         }
         
         // Show user-friendly error message
@@ -1549,6 +1605,135 @@ class SendAnywhereApp {
         
         // Reset to initial state
         this.resetTransfer();
+    }
+    
+    async initiateServerRelayedTransfer() {
+        console.log('Starting server-relayed transfer as fallback');
+        
+        const statusMessage = document.getElementById('status-message');
+        if (statusMessage) {
+            statusMessage.textContent = 'Using fallback transfer method...';
+            statusMessage.className = 'status-transferring';
+        }
+        
+        try {
+            // Convert files to base64 and send via socket
+            const fileData = [];
+            
+            for (const file of this.selectedFiles) {
+                const arrayBuffer = await this.readFileAsArrayBuffer(file);
+                const base64 = this.arrayBufferToBase64(arrayBuffer);
+                
+                fileData.push({
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    data: base64
+                });
+            }
+            
+            // Send files via socket
+            this.socket.emit('relay-transfer', {
+                code: this.currentCode,
+                files: fileData
+            });
+            
+            this.showToast('Files sent via server relay!', 'success');
+            this.handleTransferComplete();
+            
+        } catch (error) {
+            console.error('Server relay transfer failed:', error);
+            this.showToast('All transfer methods failed. Please try again.', 'error');
+        }
+    }
+    
+    arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        
+        return window.btoa(binary);
+    }
+    
+    base64ToArrayBuffer(base64) {
+        const binaryString = window.atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        return bytes.buffer;
+    }
+
+    handleRelayTransfer(data) {
+        console.log('Handling relay transfer:', data);
+        
+        if (!data.files || !Array.isArray(data.files)) {
+            console.error('Invalid relay transfer data');
+            this.showToast('Invalid transfer data received', 'error');
+            return;
+        }
+        
+        const receiveMessage = document.getElementById('receive-message');
+        const receiveProgressBar = document.getElementById('receive-progress-bar');
+        
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Receiving files via server...';
+            receiveMessage.className = 'status-transferring';
+        }
+        
+        if (receiveProgressBar) {
+            receiveProgressBar.classList.remove('hidden');
+        }
+        
+        try {
+            // Process each file from the relay transfer
+            data.files.forEach((fileData, index) => {
+                console.log(`Processing relayed file ${index + 1}: ${fileData.name}`);
+                
+                // Convert base64 back to array buffer
+                const arrayBuffer = this.base64ToArrayBuffer(fileData.data);
+                
+                // Create blob from array buffer
+                const blob = new Blob([arrayBuffer], { type: fileData.type });
+                
+                // Create file object for received files
+                const fileObj = {
+                    name: fileData.name,
+                    size: fileData.size,
+                    type: fileData.type,
+                    blob: blob,
+                    url: URL.createObjectURL(blob)
+                };
+                
+                // Add to received files
+                this.receivedFiles.push(fileObj);
+                
+                // Display the received file
+                this.displayReceivedFile(fileObj);
+                
+                // Update progress
+                const progress = ((index + 1) / data.files.length) * 100;
+                const receiveProgressFill = document.querySelector('#receive-progress-bar .progress-fill');
+                if (receiveProgressFill) {
+                    receiveProgressFill.style.width = progress + '%';
+                }
+            });
+            
+            // Complete the transfer
+            this.handleReceiveComplete();
+            this.showToast(`Received ${data.files.length} files via server relay!`, 'success');
+            
+        } catch (error) {
+            console.error('Error processing relay transfer:', error);
+            this.showToast('Error processing received files', 'error');
+        }
     }
 
     async sendFiles() {

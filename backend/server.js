@@ -247,6 +247,60 @@ io.on('connection', (socket) => {
     }
   });
   
+  // Handle relay transfer (fallback for WebRTC failures)
+  socket.on('relay-transfer', async (data) => {
+    try {
+      const { code, files } = data;
+      console.log(`Relay transfer request for code ${code} with ${files?.length} files`);
+      
+      // Find the receiver for this code
+      let session;
+      try {
+        const result = await pool.query(
+          'SELECT * FROM transfer_sessions WHERE code = $1 AND expires_at > NOW()',
+          [code]
+        );
+        session = result.rows[0];
+      } catch (dbError) {
+        console.log('Database not available, using memory storage');
+        session = memoryStorage.getTransferSession(code);
+      }
+      
+      if (!session) {
+        console.log(`No valid session found for code: ${code}`);
+        socket.emit('error', { message: 'Invalid or expired code' });
+        return;
+      }
+      
+      // Get all connected sockets for this session
+      const senderSocketId = session.sender_socket_id;
+      const receiverSocketId = session.receiver_socket_id;
+      
+      // If this is the sender, relay to receiver
+      if (socket.id === senderSocketId && receiverSocketId) {
+        const receiverSocket = io.sockets.sockets.get(receiverSocketId);
+        if (receiverSocket) {
+          console.log(`Relaying ${files.length} files from ${senderSocketId} to ${receiverSocketId}`);
+          receiverSocket.emit('relay-transfer', {
+            code: code,
+            files: files
+          });
+          console.log('Files relayed successfully');
+        } else {
+          console.log(`Receiver socket ${receiverSocketId} not found`);
+          socket.emit('error', { message: 'Receiver not available' });
+        }
+      } else {
+        console.log(`Invalid relay request from ${socket.id} for session sender: ${senderSocketId}`);
+        socket.emit('error', { message: 'Invalid relay request' });
+      }
+      
+    } catch (error) {
+      console.error('Error handling relay transfer:', error);
+      socket.emit('error', { message: 'Relay transfer failed' });
+    }
+  });
+  
   // Handle disconnect
   socket.on('disconnect', async () => {
     try {
