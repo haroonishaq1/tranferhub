@@ -12,7 +12,8 @@ const fileRoutes = require('./routes/fileRoutes');
 const authRoutes = require('./routes/authRoutes');
 
 // Load environment variables
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '../.env.production') });
+dotenv.config(); // This will load backend/.env for local development
 
 // Initialize Express app
 const app = express();
@@ -73,6 +74,27 @@ app.get('/receive/:code', (req, res) => {
 
 app.get('/api', (req, res) => {
   res.json({ message: 'SendAnywhere Clone API is running' });
+});
+
+// Health check endpoint
+app.get('/health', async (req, res) => {
+  try {
+    // Check database connection
+    await pool.query('SELECT 1');
+    res.status(200).json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      database: 'connected',
+      environment: process.env.NODE_ENV || 'development'
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      database: 'disconnected',
+      error: error.message
+    });
+  }
 });
 
 // Socket.io connection for real-time file transfers
@@ -236,8 +258,41 @@ setupDatabase().then(() => {
 
 // Start server
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Database: ${process.env.DATABASE_URL ? 'PostgreSQL (Production)' : 'Local PostgreSQL'}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    if (pool) {
+      pool.end(() => {
+        console.log('Database pool closed');
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    if (pool) {
+      pool.end(() => {
+        console.log('Database pool closed');
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+  });
 });
 
 module.exports = { app, io };

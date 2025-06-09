@@ -1,15 +1,20 @@
 const { Pool } = require('pg');
 const dotenv = require('dotenv');
+const path = require('path');
 
+// Load environment variables
+dotenv.config({ path: path.join(__dirname, '../../.env.production') });
 dotenv.config();
 
 // Database connection
 let pool;
 if (process.env.DATABASE_URL) {
+  // Production mode (Render) - DATABASE_URL is provided by Render PostgreSQL service
   pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
   });
+  console.log('Using DATABASE_URL for database connection');
 } else {
   // Local development with individual env vars
   pool = new Pool({
@@ -19,6 +24,7 @@ if (process.env.DATABASE_URL) {
     password: process.env.DB_PASSWORD,
     port: process.env.DB_PORT
   });
+  console.log('Using individual env vars for database connection');
 }
 
 const setupDatabase = async () => {
