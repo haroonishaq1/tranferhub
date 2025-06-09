@@ -19,4 +19,5 @@ services:
     
   - type: pserv
     name: tranferhub-db
+    runtime: postgres
     plan: free
