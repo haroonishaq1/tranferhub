@@ -23,32 +23,10 @@ class SendAnywhereApp {    constructor() {
     }
 
     init() {
-        console.log('🚀 TransferHub initializing...');
-        
-        // Run production diagnostics
-        const diagnostics = this.runProductionDiagnostics();
-        
-        // Check for critical issues
-        if (!diagnostics.webrtc) {
-            console.error('❌ WebRTC not supported - will use server relay only');
-            this.showToast('Direct transfers not supported on this browser. Server relay will be used.', 'warning', 5000);
-        }
-        
-        if (!diagnostics.simplepeer) {
-            console.error('❌ SimplePeer library not loaded - will use server relay only');
-        }
-        
-        if (diagnostics.environment === 'production' && !diagnostics.https) {
-            console.warn('⚠️ Production environment without HTTPS - WebRTC may not work');
-            this.showToast('For best performance, use HTTPS for secure transfers.', 'info', 4000);
-        }
-        
         this.connectSocket();
         this.setupEventListeners();
         this.setupFileHandling();
         this.checkPDFJSAvailability();
-        
-        console.log('✅ TransferHub initialized successfully');
     }
     
     checkPDFJSAvailability() {
@@ -69,52 +47,39 @@ class SendAnywhereApp {    constructor() {
         let port = window.location.port;
         
         let serverUrl;
-        const isProduction = hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '0.0.0.0';
         
-        if (isProduction) {
-            // Production environment (hosted platform like Render, Vercel, etc.)
+        // Production environment (any non-localhost hostname)
+        if (hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '0.0.0.0') {
+            // In production, the frontend is served by the same server
             serverUrl = `${protocol}//${hostname}${port ? ':' + port : ''}`;
-            console.log('🌐 Production environment detected');
-        } else {
-            // Local development
+        } 
+        // Local development
+        else {
             if (port === '8000') {
                 // Frontend dev server on 8000, backend on 4999
                 serverUrl = `http://${hostname}:4999`;
-                console.log('🔧 Development: Frontend on 8000, connecting to backend on 4999');
             } else if (port === '4999' || !port) {
                 // Backend serving frontend on 4999
                 serverUrl = `http://${hostname}:4999`;
-                console.log('🔧 Development: Backend serving on 4999');
             } else {
                 // Default fallback for local development
                 serverUrl = 'http://localhost:4999';
-                console.log('🔧 Development: Using fallback localhost:4999');
             }
         }
         
-        console.log(`Environment: ${isProduction ? 'Production' : 'Development'}`);
-        console.log(`Current hostname: ${hostname}, port: ${port}, protocol: ${protocol}`);
+        console.log(`Environment: ${hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '0.0.0.0' ? 'Production' : 'Development'}`);
+        console.log(`Current hostname: ${hostname}, port: ${port}`);
         console.log(`Connecting to socket server at: ${serverUrl}`);
-        
-        // Enhanced socket configuration for production
-        const socketConfig = {
+          this.socket = io(serverUrl, {
             reconnection: true,
             reconnectionDelay: 1000,
-            reconnectionAttempts: isProduction ? 20 : 10, // More attempts in production
-            timeout: isProduction ? 60000 : 30000, // Longer timeout for production
+            reconnectionAttempts: 10,
+            timeout: 30000,
             forceNew: true,
             transports: ['websocket', 'polling'], // Try websocket first, fallback to polling
             upgrade: true,
             rememberUpgrade: true
-        };
-        
-        // Additional production settings
-        if (isProduction) {
-            socketConfig.secure = protocol === 'https:';
-            socketConfig.rejectUnauthorized = false; // For self-signed certificates in some hosting
-        }
-        
-        this.socket = io(serverUrl, socketConfig);
+        });
         
         this.socket.on('connect', () => {
             console.log('Connected to server with socket ID:', this.socket.id);
@@ -1025,72 +990,93 @@ class SendAnywhereApp {    constructor() {
     }    initPeerConnection(initiator, targetSocketId) {
         console.log(`Initializing peer connection - Initiator: ${initiator}, Target: ${targetSocketId}, My ID: ${this.socket.id}`);
         
-        // Check if we're in production environment
-        const isProduction = window.location.hostname !== 'localhost' && 
-                           window.location.hostname !== '127.0.0.1' && 
-                           window.location.hostname !== '0.0.0.0';
-        const isHTTPS = window.location.protocol === 'https:';
-        
-        console.log('Environment:', { isProduction, isHTTPS, hostname: window.location.hostname, protocol: window.location.protocol });
-        
-        // Validate HTTPS requirement for production
-        if (isProduction && !isHTTPS) {
-            console.error('❌ HTTPS required for WebRTC in production environment');
-            this.handleConnectionFailure('HTTPS required for peer connections in production - using server relay');
-            return;
-        }
+        // Enhanced ICE server configuration with more reliable TURN servers
+        const iceServers = [
+            // Google STUN servers (multiple for redundancy)
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            
+            // Additional reliable STUN servers
+            { urls: 'stun:stun.stunprotocol.org:3478' },
+            { urls: 'stun:stun.voiparound.com' },
+            { urls: 'stun:stun.voipbuster.com' },
+            { urls: 'stun:stun.voipstunt.com' },
+            { urls: 'stun:stun.voxgratia.org' },
+            
+            // Multiple reliable TURN servers for NAT traversal
+            {
+                urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            // Additional TURN servers for better cross-network connectivity
+            {
+                urls: ['turn:relay1.expressturn.com:3478'],
+                username: 'efJBIBVP6ETOFD3XKX',
+                credential: 'WmtzanB3ZnpERzRYVw'
+            },
+            {
+                urls: 'turn:numb.viagenie.ca',
+                username: 'webrtc@live.com',
+                credential: 'muazkh'
+            },
+            // Additional backup TURN servers
+            {
+                urls: ['turn:turn.bistri.com:80'],
+                username: 'homeo',
+                credential: 'homeo'
+            },
+            {
+                urls: ['turn:turn.anyfirewall.com:443?transport=tcp'],
+                username: 'webrtc',
+                credential: 'webrtc'
+            }
+        ];
+
+        console.log('Using ICE servers:', iceServers.length, 'servers configured for cross-device connectivity');
 
         // Check if SimplePeer is available
         if (typeof SimplePeer === 'undefined') {
             console.error('SimplePeer not loaded, falling back to server relay');
-            this.handleConnectionFailure('WebRTC library not available, using server relay');
+            this.handleConnectionFailure('WebRTC not available, using server relay');
             return;
         }
 
-        // Use enhanced production-grade configuration
-        let peerConfig;
-        if (typeof ProductionWebRTCConfig !== 'undefined') {
-            peerConfig = ProductionWebRTCConfig.getSimplePeerConfig(initiator, isProduction);
-            console.log('Using production-grade WebRTC configuration');
-        } else {
-            // Fallback configuration if production config is not loaded
-            const iceServers = [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                {
-                    urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
-                }
-            ];
-
-            peerConfig = {
-                initiator: initiator,
-                trickle: true,
-                config: {
-                    iceServers: iceServers,
-                    iceCandidatePoolSize: isProduction ? 20 : 10,
-                    iceTransportPolicy: 'all'
-                },
-                objectMode: true,
-                iceCompleteTimeout: isProduction ? 45000 : 20000
-            };
-        }
-
-        this.peer = new SimplePeer(peerConfig);
-        
-        // Set connection timeout - more generous for production
-        const connectionTimeout = isProduction ? 30000 : 15000;
+        this.peer = new SimplePeer({
+            initiator: initiator,
+            trickle: true,
+            config: {
+                iceServers: iceServers,
+                iceCandidatePoolSize: 15, // Increased for better connectivity
+                iceTransportPolicy: 'all',
+                bundlePolicy: 'max-bundle',
+                rtcpMuxPolicy: 'require'
+            },
+            objectMode: true,
+            allowHalfTrickle: false,
+            iceCompleteTimeout: 20000, // Extended for cross-device connections
+            offerOptions: {
+                offerToReceiveAudio: false,
+                offerToReceiveVideo: false
+            }
+        });
+          // Reduce timeout for cross-device connections to fail faster to server relay
         this.connectionTimeout = setTimeout(() => {
             if (this.peer && !this.peer.connected) {
-                console.error(`Connection timeout after ${connectionTimeout/1000} seconds - initiating fallback`);
+                console.error('Connection timeout after 10 seconds - initiating fallback for cross-device transfer');
                 console.log('Peer state:', {
                     connected: this.peer.connected,
                     connecting: this.peer.connecting,
                     destroyed: this.peer.destroyed
                 });
                 
+                // Enhanced debugging for cross-device issues
                 if (this.peer._pc) {
                     console.log('WebRTC states:', {
                         connectionState: this.peer._pc.connectionState,
@@ -1098,26 +1084,34 @@ class SendAnywhereApp {    constructor() {
                         iceGatheringState: this.peer._pc.iceGatheringState,
                         signalingState: this.peer._pc.signalingState
                     });
+                    
+                    // Log ICE candidates for debugging NAT issues
+                    this.peer._pc.getStats().then(stats => {
+                        let candidatePairs = [];
+                        stats.forEach(report => {
+                            if (report.type === 'candidate-pair') {
+                                candidatePairs.push(report);
+                            }
+                        });
+                        console.log('ICE candidate pairs:', candidatePairs.length);
+                    }).catch(e => console.log('Could not get WebRTC stats:', e));
                 }
                 
-                const failureReason = isProduction ? 
-                    'Production cross-device connection timeout - falling back to server relay' :
-                    'Development connection timeout - falling back to server relay';
-                    
-                this.handleConnectionFailure(failureReason);
+                this.handleConnectionFailure('Cross-device connection timeout - falling back to server relay');
             }
-        }, connectionTimeout);
+        }, 10000); // Reduced timeout for faster fallback to server relay
 
-        // Enhanced signal handling with better logging
         this.peer.on('signal', (signal) => {
             console.log(`Sending signal to ${targetSocketId}:`, signal.type);
             
+            // Enhanced ICE candidate logging for debugging
             if (signal.type === 'candidate' && signal.candidate) {
-                const candidate = signal.candidate;
-                console.log('🧊 Sending ICE candidate:', {
-                    type: candidate.type,
-                    protocol: candidate.protocol,
-                    port: candidate.port
+                console.log('Sending ICE candidate:', {
+                    type: signal.candidate.type,
+                    protocol: signal.candidate.protocol,
+                    address: signal.candidate.address,
+                    port: signal.candidate.port,
+                    foundation: signal.candidate.foundation
                 });
             }
             
@@ -1127,7 +1121,6 @@ class SendAnywhereApp {    constructor() {
             });
         });
 
-        // Enhanced connection event handling
         this.peer.on('connect', () => {
             console.log('🎉 P2P connection established successfully with', targetSocketId);
             
@@ -1138,9 +1131,12 @@ class SendAnywhereApp {    constructor() {
             }
             
             this.showToast('Connected! Starting transfer...', 'success');
+            
+            // Start connection heartbeat to monitor connection health
             this.startConnectionHeartbeat();
             
             if (initiator) {
+                // Sender: start sending files
                 console.log('Starting file transfer as sender');
                 setTimeout(() => this.sendFiles(), 500);
             } else {
@@ -1158,7 +1154,7 @@ class SendAnywhereApp {    constructor() {
             console.log('Error details:', {
                 message: err.message,
                 code: err.code,
-                type: err.type || 'unknown'
+                stack: err.stack
             });
             this.handleConnectionFailure(err.message || 'Connection error');
         });
@@ -1169,11 +1165,12 @@ class SendAnywhereApp {    constructor() {
                 clearTimeout(this.connectionTimeout);
                 this.connectionTimeout = null;
             }
+            
             this.stopConnectionHeartbeat();
             this.peer = null;
         });
         
-        // Enhanced ICE connection monitoring
+        // Enhanced ICE connection monitoring for cross-device debugging
         if (this.peer._pc) {
             this.peer._pc.oniceconnectionstatechange = () => {
                 const state = this.peer._pc.iceConnectionState;
@@ -1182,7 +1179,7 @@ class SendAnywhereApp {    constructor() {
                 switch (state) {
                     case 'checking':
                         console.log('🔍 ICE checking - attempting to establish connection...');
-                        this.showToast('Establishing direct connection...', 'info', 3000);
+                        this.showToast('Establishing connection...', 'info', 3000);
                         break;
                     case 'connected':
                         console.log('✅ ICE connected - peer connection established');
@@ -1192,25 +1189,12 @@ class SendAnywhereApp {    constructor() {
                         break;
                     case 'failed':
                         console.error('❌ ICE connection failed - NAT/firewall issues detected');
-                        if (isProduction) {
-                            console.log('Production firewall/NAT traversal failed - falling back to server relay');
-                            this.handleConnectionFailure('Network restrictions detected - using secure server relay');
-                        } else {
-                            console.log('Network traversal problems - using server relay');
-                            this.handleConnectionFailure('Network connection failed - using server relay');
-                        }
+                        console.log('This usually indicates NAT traversal problems between different networks');
+                        this.handleConnectionFailure('Network connection failed - devices are on different networks that cannot connect directly. Using server relay...');
                         break;
                     case 'disconnected':
                         console.warn('⚠️ ICE disconnected - connection lost');
                         this.showToast('Connection unstable...', 'warning', 2000);
-                        
-                        if (isProduction) {
-                            setTimeout(() => {
-                                if (this.peer && this.peer._pc && this.peer._pc.iceConnectionState === 'disconnected') {
-                                    this.handleConnectionFailure('Connection lost - switching to server relay');
-                                }
-                            }, 10000);
-                        }
                         break;
                     case 'closed':
                         console.log('🔒 ICE closed - connection terminated');
@@ -1231,38 +1215,76 @@ class SendAnywhereApp {    constructor() {
                         break;
                     case 'disconnected':
                         console.warn('⚠️ WebRTC disconnected');
-                        if (!isProduction) {
-                            setTimeout(() => {
-                                if (this.peer && this.peer._pc && this.peer._pc.connectionState === 'disconnected') {
-                                    this.handleConnectionFailure('WebRTC disconnected - using server relay');
-                                }
-                            }, 5000);
-                        }
                         break;
                     case 'failed':
                         console.error('❌ WebRTC connection failed');
-                        const reason = isProduction ? 
-                            'Production WebRTC connection failed - using secure server relay' :
-                            'WebRTC connection failed - using server relay';
-                        this.handleConnectionFailure(reason);
+                        this.handleConnectionFailure('WebRTC connection failed - using server relay');
                         break;
                     case 'closed':
                         console.log('🔒 WebRTC connection closed');
                         break;
                 }
             };
-
-            // Enhanced ICE candidate logging
+            
+            // Enhanced ICE candidate logging for debugging NAT issues
             this.peer._pc.onicecandidate = (event) => {
                 if (event.candidate) {
                     const candidate = event.candidate;
                     console.log('🧊 ICE candidate generated:', {
                         type: candidate.type,
                         protocol: candidate.protocol,
-                        priority: candidate.priority
+                        address: candidate.address,
+                        port: candidate.port,
+                        priority: candidate.priority,
+                        foundation: candidate.foundation
                     });
+                    
+                    // Log candidate types to help debug connectivity
+                    if (candidate.type === 'host') {
+                        console.log('📍 Host candidate (local IP)');
+                    } else if (candidate.type === 'srflx') {
+                        console.log('🌐 Server reflexive candidate (public IP via STUN)');
+                    } else if (candidate.type === 'relay') {
+                        console.log('🔄 Relay candidate (via TURN server)');
+                    }
                 } else {
                     console.log('🧊 ICE candidate gathering completed');
+                }
+            };
+            
+            // Monitor ICE gathering state
+            this.peer._pc.onicegatheringstatechange = () => {
+                const state = this.peer._pc.iceGatheringState;
+                console.log('🔄 ICE gathering state:', state);
+                
+                if (state === 'complete') {
+                    console.log('🎯 ICE gathering completed - all candidates collected');
+                    
+                    // Log final candidate count for debugging
+                    setTimeout(() => {
+                        this.peer._pc.getStats().then(stats => {
+                            let hostCandidates = 0, srflxCandidates = 0, relayCandidates = 0;
+                            stats.forEach(report => {
+                                if (report.type === 'local-candidate') {
+                                    switch (report.candidateType) {
+                                        case 'host': hostCandidates++; break;
+                                        case 'srflx': srflxCandidates++; break;
+                                        case 'relay': relayCandidates++; break;
+                                    }
+                                }
+                            });
+                            console.log('📊 ICE candidates summary:', {
+                                host: hostCandidates,
+                                serverReflexive: srflxCandidates,
+                                relay: relayCandidates
+                            });
+                            
+                            // If no relay candidates, warn about potential NAT issues
+                            if (relayCandidates === 0) {
+                                console.warn('⚠️ No TURN relay candidates - may have issues with cross-network connections');
+                            }
+                        }).catch(e => console.log('Could not analyze ICE candidates:', e));
+                    }, 1000);
                 }
             };
         }
@@ -1300,70 +1322,28 @@ class SendAnywhereApp {    constructor() {
             this.peer = null;
         }
         
-        // Determine if we're in production
-        const isProduction = window.location.hostname !== 'localhost' && 
-                           window.location.hostname !== '127.0.0.1' && 
-                           window.location.hostname !== '0.0.0.0';
-        const isHTTPS = window.location.protocol === 'https:';
+        // Enhanced fallback for cross-device connections
+        console.log('Attempting server-relayed transfer as fallback for cross-device connection');
+        this.showToast('Direct connection failed. Using server relay...', 'info', 3000);
         
-        // Enhanced fallback for different environments
-        console.log('Attempting server-relayed transfer as fallback');
-        
-        let userMessage;
-        let technicalReason;
-        
-        if (message.includes('HTTPS required')) {
-            userMessage = 'Secure connection required. Using encrypted server relay...';
-            technicalReason = 'HTTPS_REQUIRED';
-        } else if (message.includes('Network restrictions')) {
-            userMessage = 'Network firewall detected. Using secure relay...';
-            technicalReason = 'FIREWALL_DETECTED';
-        } else if (message.includes('Production')) {
-            userMessage = 'Direct connection unavailable. Using secure relay...';
-            technicalReason = 'PRODUCTION_NAT_TRAVERSAL';
-        } else if (isProduction) {
-            userMessage = 'Connecting via secure server relay...';
-            technicalReason = 'PRODUCTION_FALLBACK';
-        } else {
-            userMessage = 'Direct connection failed. Using server relay...';
-            technicalReason = 'DEVELOPMENT_FALLBACK';
-        }
-        
-        this.showToast(userMessage, 'info', 4000);
-        
-        // Update UI to show fallback mode with better messaging
+        // Update UI to show fallback mode
         const statusMessage = document.getElementById('status-message');
         const receiveMessage = document.getElementById('receive-message');
         
         if (statusMessage) {
-            statusMessage.textContent = isProduction ? 
-                'Using secure server relay for transfer...' : 
-                'Using server relay for transfer...';
+            statusMessage.textContent = 'Using server relay for transfer...';
             statusMessage.className = 'status-fallback';
         }
         
         if (receiveMessage) {
-            receiveMessage.textContent = isProduction ? 
-                'Connecting via secure server relay...' : 
-                'Connecting via server relay...';
+            receiveMessage.textContent = 'Using server relay for transfer...';
             receiveMessage.className = 'status-fallback';
         }
         
-        // Log analytics for debugging production issues
-        console.log('📊 Connection Failure Analytics:', {
-            environment: isProduction ? 'production' : 'development',
-            https: isHTTPS,
-            hostname: window.location.hostname,
-            userAgent: navigator.userAgent.substring(0, 50) + '...',
-            reason: technicalReason,
-            timestamp: new Date().toISOString()
-        });
-        
-        // Use server-relayed transfer as fallback with shorter delay for production
-        const fallbackDelay = isProduction ? 1000 : 2000;
+        // Use server-relayed transfer as fallback
         setTimeout(() => {
             this.initiateServerRelayedTransfer();
-        }, fallbackDelay);
+        }, 2000);
     }
     
     startConnectionHeartbeat() {
@@ -1934,59 +1914,7 @@ class SendAnywhereApp {    constructor() {
           console.log('Transfer reset completed');
     }
     
-    // Production debugging and diagnostics
-    runProductionDiagnostics() {
-        const isProduction = window.location.hostname !== 'localhost' && 
-                           window.location.hostname !== '127.0.0.1' && 
-                           window.location.hostname !== '0.0.0.0';
-        const isHTTPS = window.location.protocol === 'https:';
-        
-        console.log('🔍 Production Diagnostics Report:');
-        console.log('================================');
-        console.log('Environment:', isProduction ? 'PRODUCTION' : 'DEVELOPMENT');
-        console.log('Protocol:', window.location.protocol);
-        console.log('Hostname:', window.location.hostname);
-        console.log('Port:', window.location.port || 'default');
-        console.log('HTTPS:', isHTTPS ? '✅ Available' : '❌ Not available');
-        console.log('User Agent:', navigator.userAgent);
-        
-        // Check WebRTC support
-        console.log('\n📡 WebRTC Support:');
-        console.log('RTCPeerConnection:', typeof RTCPeerConnection !== 'undefined' ? '✅ Available' : '❌ Not available');
-        console.log('SimplePeer:', typeof SimplePeer !== 'undefined' ? '✅ Available' : '❌ Not available');
-        
-        // Check Socket.io connection
-        console.log('\n🔌 Socket.io Status:');
-        console.log('Connected:', this.socket?.connected ? '✅ Connected' : '❌ Disconnected');
-        console.log('Socket ID:', this.socket?.id || 'No ID');
-        
-        // Check network conditions
-        if (navigator.connection) {
-            console.log('\n🌐 Network Information:');
-            console.log('Effective Type:', navigator.connection.effectiveType);
-            console.log('Downlink:', navigator.connection.downlink + ' Mbps');
-            console.log('RTT:', navigator.connection.rtt + 'ms');
-        }
-        
-        // Production-specific checks
-        if (isProduction) {
-            console.log('\n🏭 Production Checks:');
-            console.log('HTTPS Required:', !isHTTPS ? '⚠️ Warning: HTTPS recommended for production WebRTC' : '✅ HTTPS enabled');
-            console.log('Mixed Content:', window.location.protocol === 'https:' && 
-                       document.querySelector('script[src^="http:"]') ? '⚠️ Warning: Mixed content detected' : '✅ No mixed content');
-        }
-        
-        console.log('================================');
-        
-        return {
-            environment: isProduction ? 'production' : 'development',
-            https: isHTTPS,
-            webrtc: typeof RTCPeerConnection !== 'undefined',
-            simplepeer: typeof SimplePeer !== 'undefined',
-            socketConnected: this.socket?.connected || false,
-            networkType: navigator.connection?.effectiveType || 'unknown'
-        };
-    }
+    // Additional production-specific methods
     handlePeerDisconnected(data) {
         console.warn('Peer disconnected:', data.socketId);
         

@@ -27,16 +27,7 @@ const io = socketIo(server, {
   allowEIO3: true,
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
-  pingInterval: 25000,
-  // Enhanced production settings
-  serveClient: false,
-  cookie: false,
-  maxHttpBufferSize: 1e7, // 10 MB for large file transfers
-  allowUpgrades: true,
-  perMessageDeflate: false,
-  // Additional production optimizations
-  compression: true,
-  httpCompression: true
+  pingInterval: 25000
 });
 
 // Database connection
@@ -437,8 +428,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`Database: ${process.env.DATABASE_URL ? 'PostgreSQL (Production)' : 'Local PostgreSQL'}`);
-  console.log(`Frontend URL: http://localhost:${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
 });
 
 // Graceful shutdown
