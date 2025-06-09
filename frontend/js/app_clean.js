@@ -989,55 +989,8 @@ class SendAnywhereApp {    constructor() {
         this.showToast('Connected to sender!', 'success');
     }    initPeerConnection(initiator, targetSocketId) {
         console.log(`Initializing peer connection - Initiator: ${initiator}, Target: ${targetSocketId}, My ID: ${this.socket.id}`);
-        
-        // Enhanced ICE server configuration with more reliable TURN servers
-        const iceServers = [
-            // Google STUN servers (multiple for redundancy)
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            
-            // Additional reliable STUN servers
-            { urls: 'stun:stun.stunprotocol.org:3478' },
-            { urls: 'stun:stun.voiparound.com' },
-            { urls: 'stun:stun.voipbuster.com' },
-            { urls: 'stun:stun.voipstunt.com' },
-            { urls: 'stun:stun.voxgratia.org' },
-            
-            // Multiple reliable TURN servers for NAT traversal
-            {
-                urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
-                username: 'openrelayproject',
-                credential: 'openrelayproject'
-            },
-            {
-                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-                username: 'openrelayproject',
-                credential: 'openrelayproject'
-            },
-            // Additional TURN servers for better cross-network connectivity
-            {
-                urls: ['turn:relay1.expressturn.com:3478'],
-                username: 'efJBIBVP6ETOFD3XKX',
-                credential: 'WmtzanB3ZnpERzRYVw'
-            },
-            {
-                urls: 'turn:numb.viagenie.ca',
-                username: 'webrtc@live.com',
-                credential: 'muazkh'
-            },
-            // Additional backup TURN servers
-            {
-                urls: ['turn:turn.bistri.com:80'],
-                username: 'homeo',
-                credential: 'homeo'
-            },
-            {
-                urls: ['turn:turn.anyfirewall.com:443?transport=tcp'],
-                username: 'webrtc',
-                credential: 'webrtc'
-            }
-        ];
+          // Enhanced ICE server configuration with more reliable TURN servers
+        const iceServers = this.getIceServersConfig();
 
         console.log('Using ICE servers:', iceServers.length, 'servers configured for cross-device connectivity');
 
@@ -1176,8 +1129,7 @@ class SendAnywhereApp {    constructor() {
                 const state = this.peer._pc.iceConnectionState;
                 console.log('🔄 ICE connection state changed to:', state);
                 
-                switch (state) {
-                    case 'checking':
+                switch (state) {                    case 'checking':
                         console.log('🔍 ICE checking - attempting to establish connection...');
                         this.showToast('Establishing connection...', 'info', 3000);
                         break;
@@ -1190,6 +1142,20 @@ class SendAnywhereApp {    constructor() {
                     case 'failed':
                         console.error('❌ ICE connection failed - NAT/firewall issues detected');
                         console.log('This usually indicates NAT traversal problems between different networks');
+                        
+                        // Log detailed failure information
+                        if (this.peer._pc) {
+                            this.peer._pc.getStats().then(stats => {
+                                let failureReasons = [];
+                                stats.forEach(report => {
+                                    if (report.type === 'candidate-pair' && report.state === 'failed') {
+                                        failureReasons.push(`Failed pair: ${report.localCandidateId} -> ${report.remoteCandidateId}`);
+                                    }
+                                });
+                                console.log('📊 Failed candidate pairs:', failureReasons);
+                            });
+                        }
+                        
                         this.handleConnectionFailure('Network connection failed - devices are on different networks that cannot connect directly. Using server relay...');
                         break;
                     case 'disconnected':
@@ -1970,8 +1936,7 @@ class SendAnywhereApp {    constructor() {
             this.showToast('No files received in server relay', 'warning');
         }
     }
-    
-    // Add debug method for testing
+      // Add debug method for testing
     debugFileSelection() {
         console.log('=== DEBUG FILE SELECTION ===');
         console.log('Selected Files:', this.selectedFiles);
@@ -1979,6 +1944,162 @@ class SendAnywhereApp {    constructor() {
         console.log('Is Receiver:', this.isReceiver);
         console.log('Socket Connected:', this.socket?.connected);
         console.log('Peer Connected:', this.peer?.connected);
+    }
+    
+    // Test P2P connectivity without file transfer
+    async testP2PConnectivity() {
+        console.log('🧪 Testing P2P Connectivity...');
+        
+        if (typeof SimplePeer === 'undefined') {
+            console.error('❌ SimplePeer not available');
+            this.showToast('SimplePeer library not loaded', 'error');
+            return;
+        }
+        
+        console.log('📊 Testing with ICE servers:', this.getIceServersConfig().length, 'servers');
+        
+        try {
+            // Create two peer connections for local testing
+            const peer1 = new SimplePeer({
+                initiator: true,
+                trickle: true,
+                config: {
+                    iceServers: this.getIceServersConfig(),
+                    iceCandidatePoolSize: 15,
+                    iceTransportPolicy: 'all',
+                    bundlePolicy: 'max-bundle',
+                    rtcpMuxPolicy: 'require'
+                }
+            });
+            
+            const peer2 = new SimplePeer({
+                initiator: false,
+                trickle: true,
+                config: {
+                    iceServers: this.getIceServersConfig(),
+                    iceCandidatePoolSize: 15,
+                    iceTransportPolicy: 'all',
+                    bundlePolicy: 'max-bundle',
+                    rtcpMuxPolicy: 'require'
+                }
+            });
+            
+            // Log ICE candidates
+            const logCandidates = (peer, name) => {
+                if (peer._pc) {
+                    peer._pc.onicecandidate = (event) => {
+                        if (event.candidate) {
+                            console.log(`🧊 ${name} ICE candidate:`, {
+                                type: event.candidate.type,
+                                protocol: event.candidate.protocol,
+                                address: event.candidate.address,
+                                port: event.candidate.port
+                            });
+                        }
+                    };
+                }
+            };
+            
+            logCandidates(peer1, 'Peer1');
+            logCandidates(peer2, 'Peer2');
+            
+            // Set up connection
+            peer1.on('signal', data => {
+                console.log('📤 Peer1 signal:', data.type);
+                peer2.signal(data);
+            });
+            
+            peer2.on('signal', data => {
+                console.log('📤 Peer2 signal:', data.type);
+                peer1.signal(data);
+            });
+            
+            // Test connection success
+            const testPromise = new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('P2P test timeout after 15 seconds'));
+                }, 15000);
+                
+                peer1.on('connect', () => {
+                    console.log('✅ P2P Connection successful!');
+                    clearTimeout(timeout);
+                    
+                    // Test data transfer
+                    peer1.send('Hello from peer1!');
+                });
+                
+                peer2.on('data', (data) => {
+                    console.log('📥 Received data:', data.toString());
+                    peer2.send('Hello back from peer2!');
+                });
+                
+                peer1.on('data', (data) => {
+                    console.log('📥 Received data:', data.toString());
+                    resolve('P2P test successful!');
+                });
+                
+                peer1.on('error', reject);
+                peer2.on('error', reject);
+            });
+            
+            const result = await testPromise;
+            console.log('🎉', result);
+            this.showToast(result, 'success');
+            
+            // Cleanup
+            peer1.destroy();
+            peer2.destroy();
+            
+        } catch (error) {
+            console.error('❌ P2P test failed:', error.message);
+            this.showToast(`P2P test failed: ${error.message}`, 'warning');
+            
+            console.log('💡 This is normal for cross-device scenarios. Server relay will be used instead.');
+        }
+    }
+    
+    // Get ICE servers configuration
+    getIceServersConfig() {
+        return [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun.stunprotocol.org:3478' },
+            { urls: 'stun:stun.voiparound.com' },
+            { urls: 'stun:stun.voipbuster.com' },
+            { urls: 'stun:stun.voipstunt.com' },
+            { urls: 'stun:stun.voxgratia.org' },
+            {
+                urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: ['turn:relay1.expressturn.com:3478'],
+                username: 'efJBIBVP6ETOFD3XKX',
+                credential: 'WmtzanB3ZnpERzRYVw'
+            },
+            {
+                urls: 'turn:numb.viagenie.ca',
+                username: 'webrtc@live.com',
+                credential: 'muazkh'
+            },
+            {
+                urls: ['turn:turn.bistri.com:80'],
+                username: 'homeo',
+                credential: 'homeo'
+            },
+            {
+                urls: ['turn:turn.anyfirewall.com:443?transport=tcp'],
+                username: 'webrtc',
+                credential: 'webrtc'
+            }
+        ];
     }
 }
 

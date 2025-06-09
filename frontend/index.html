@@ -63,9 +63,29 @@
                                     <small>Supports videos, images, documents and other formats up to 50GB</small>
                                     <input type="file" id="file-input" multiple hidden>
                                 </div>
-                            </div>
-                            <div class="action-button">
+                            </div>                            <div class="action-button">
                                 <button id="generate-code-btn" class="btn btn-primary">Upload Files</button>
+                            </div>
+                            
+                            <!-- Debug Tools -->
+                            <div class="debug-tools" style="margin-top: 20px; padding: 15px; border: 1px dashed #ccc; border-radius: 5px; background: #f9f9f9;">
+                                <details>
+                                    <summary style="cursor: pointer; font-weight: bold; color: #666;">🔧 Connection Debug Tools</summary>
+                                    <div style="margin-top: 10px;">
+                                        <button onclick="window.open('/webrtc-diagnostics.html', '_blank')" 
+                                                style="background: #28a745; color: white; border: none; padding: 8px 15px; margin: 5px; border-radius: 4px; cursor: pointer;">
+                                            🔍 Open WebRTC Diagnostics
+                                        </button>
+                                        <button onclick="app.testP2PConnectivity()" 
+                                                style="background: #17a2b8; color: white; border: none; padding: 8px 15px; margin: 5px; border-radius: 4px; cursor: pointer;">
+                                            🧪 Test P2P Connectivity
+                                        </button>
+                                        <button onclick="console.clear(); console.log('Console cleared for debugging')" 
+                                                style="background: #6c757d; color: white; border: none; padding: 8px 15px; margin: 5px; border-radius: 4px; cursor: pointer;">
+                                            🗑️ Clear Console
+                                        </button>
+                                    </div>
+                                </details>
                             </div>
                         </div>
                           <!-- Simple File List (shown after file selection, before upload) -->
