@@ -3,10 +3,9 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-// Database connection - Support both individual env vars and DATABASE_URL (for Render)
+// Database connection
 let pool;
 if (process.env.DATABASE_URL) {
-  // Render provides DATABASE_URL
   pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
