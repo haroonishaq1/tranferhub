@@ -38,52 +38,56 @@ class SendAnywhereApp {    constructor() {
             // Show a warning toast
             setTimeout(() => {
                 this.showToast('PDF preview may not work properly - PDF.js library not loaded', 'warning');
-            }, 2000);
-        }
-    }    connectSocket() {
-        // Dynamically determine the server URL based on current environment
+            }, 2000);        }
+    }
+    
+    // Fallback method for backward compatibility
+    getServerUrl() {
         const protocol = window.location.protocol;
         const hostname = window.location.hostname;
-        let port = window.location.port;
+        const port = window.location.port;
         
-        let serverUrl;
-        
-        // Production environment (any non-localhost hostname)
         if (hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '0.0.0.0') {
-            // In production, the frontend is served by the same server
-            serverUrl = `${protocol}//${hostname}${port ? ':' + port : ''}`;
-        } 
-        // Local development
-        else {
+            return `${protocol}//${hostname}${port ? ':' + port : ''}`;
+        } else {
             if (port === '8000') {
-                // Frontend dev server on 8000, backend on 4999
-                serverUrl = `http://${hostname}:4999`;
-            } else if (port === '4999' || !port) {
-                // Backend serving frontend on 4999
-                serverUrl = `http://${hostname}:4999`;
-            } else {
-                // Default fallback for local development
-                serverUrl = 'http://localhost:4999';
+                return `http://${hostname}:4999`;
             }
+            return `http://${hostname}:4999`;
         }
+    }
+
+    connectSocket() {
+        // Use production-optimized server URL detection
+        const serverUrl = window.ProductionConfig ? 
+            window.ProductionConfig.getServerUrl() : 
+            this.getServerUrl();
+            
+        // Get optimized socket configuration
+        const socketConfig = window.ProductionConfig ? 
+            window.ProductionConfig.getConnectionConfig().socketConfig : 
+            {
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionAttempts: 10,
+                timeout: 30000,
+                forceNew: true,
+                transports: ['websocket', 'polling'],
+                upgrade: true,
+                rememberUpgrade: true
+            };
         
-        console.log(`Environment: ${hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '0.0.0.0' ? 'Production' : 'Development'}`);
-        console.log(`Current hostname: ${hostname}, port: ${port}`);
-        console.log(`Connecting to socket server at: ${serverUrl}`);
-          this.socket = io(serverUrl, {
-            reconnection: true,
-            reconnectionDelay: 1000,
-            reconnectionAttempts: 10,
-            timeout: 30000,
-            forceNew: true,
-            transports: ['websocket', 'polling'], // Try websocket first, fallback to polling
-            upgrade: true,
-            rememberUpgrade: true
-        });
+        const hostname = window.location.hostname;
+        const isProduction = hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '0.0.0.0';
+        
+        console.log(`🌐 Environment: ${isProduction ? 'Production' : 'Development'}`);
+        console.log(`🔗 Connecting to: ${serverUrl}`);
+        console.log(`📱 User Agent: ${navigator.userAgent.substring(0, 50)}...`);
+          this.socket = io(serverUrl, socketConfig);
         
         this.socket.on('connect', () => {
-            console.log('Connected to server with socket ID:', this.socket.id);
-            this.showToast(`Connected to server (ID: ${this.socket.id.substring(0, 8)}...)`, 'success');
+            console.log('✅ Connected to server with socket ID:', this.socket.id);
+            this.showToast(`Connected! (${this.socket.id.substring(0, 8)}...)`, 'success');
         });
         
         this.socket.on('disconnect', (reason) => {
@@ -947,13 +951,11 @@ class SendAnywhereApp {    constructor() {
             </div>
         `;
           this.showToast(infoHtml, 'info', 5000);
-    }
-
-    handleReceiverJoined(data) {
+    }    handleReceiverJoined(data) {
         console.log(`Receiver joined: ${data.receiverSocketId}, my socket ID: ${this.socket.id}`);
         const statusMessage = document.getElementById('status-message');
         if (statusMessage) {
-            statusMessage.textContent = 'Receiver connected! Checking connection method...';
+            statusMessage.textContent = 'Receiver connected! Analyzing connection...';
             statusMessage.className = 'status-connected';
         }
         
@@ -964,17 +966,28 @@ class SendAnywhereApp {    constructor() {
             return;
         }
         
-        // Smart connection detection - skip P2P if likely to fail
-        this.determineConnectionMethod(true, data.receiverSocketId);
+        // Production optimization: Check if we should skip P2P for faster transfer
+        const shouldSkipP2P = window.ProductionConfig ? 
+            window.ProductionConfig.shouldSkipP2P() : 
+            false;
+            
+        if (shouldSkipP2P) {
+            console.log('🚀 Production optimization: Skipping P2P, using server relay directly');
+            this.showToast('Using optimized server transfer...', 'info', 3000);
+            setTimeout(() => {
+                this.initiateServerRelayedTransfer();
+            }, 1000);
+        } else {
+            // Smart connection detection - skip P2P if likely to fail
+            this.determineConnectionMethod(true, data.receiverSocketId);
+        }
         
         this.showToast('Receiver joined! Starting transfer...', 'success');
-    }
-
-    handleJoinedRoom(data) {
+    }    handleJoinedRoom(data) {
         console.log(`Joined room with sender: ${data.senderSocketId}, my socket ID: ${this.socket.id}`);
         const receiveMessage = document.getElementById('receive-message');
         if (receiveMessage) {
-            receiveMessage.textContent = 'Connected! Checking connection method...';
+            receiveMessage.textContent = 'Connected! Analyzing connection...';
             receiveMessage.className = 'status-connected';
         }
         
@@ -988,8 +1001,27 @@ class SendAnywhereApp {    constructor() {
             return;
         }
         
-        // Smart connection detection - skip P2P if likely to fail
-        this.determineConnectionMethod(false, data.senderSocketId);
+        // Production optimization: Check if we should skip P2P for faster transfer
+        const shouldSkipP2P = window.ProductionConfig ? 
+            window.ProductionConfig.shouldSkipP2P() : 
+            false;
+            
+        if (shouldSkipP2P) {
+            console.log('🚀 Production optimization: Skipping P2P, using server relay directly');
+            this.showToast('Using optimized server transfer...', 'info', 3000);
+            
+            if (receiveMessage) {
+                receiveMessage.textContent = 'Using server relay for reliable transfer...';
+                receiveMessage.className = 'status-relay';
+            }
+            
+            setTimeout(() => {
+                this.requestFilesFromServer();
+            }, 1000);
+        } else {
+            // Smart connection detection - skip P2P if likely to fail
+            this.determineConnectionMethod(false, data.senderSocketId);
+        }
         
         this.showToast('Connected to sender!', 'success');
     }
