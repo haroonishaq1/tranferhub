@@ -1842,9 +1842,18 @@ class SendAnywhereApp {    constructor() {
                     
                     this.socket.on('relay-error', errorHandler);
                 });
-                
-                try {
+                  try {
+                    console.log(`🔄 Processing file ${i + 1}/${this.selectedFiles.length}: ${file.name}`);
                     const fileData = await this.fileToBase64(file);
+                    
+                    console.log(`📋 File converted to base64: ${file.name} (${fileData.data.length} chars)`);
+                    
+                    // Validate file data before sending
+                    if (!fileData.data || fileData.data.length === 0) {
+                        throw new Error(`File conversion failed for: ${file.name}`);
+                    }
+                    
+                    console.log(`📤 Sending file to server: ${file.name}`);
                     
                     // Send file to server with transfer code
                     this.socket.emit('relay-file-upload', {
@@ -1860,6 +1869,7 @@ class SendAnywhereApp {    constructor() {
                         totalFiles: this.selectedFiles.length
                     });
                     
+                    console.log(`⏳ Waiting for upload acknowledgment for: ${file.name}`);
                     uploadPromises.push(uploadPromise);
                     
                 } catch (fileError) {
