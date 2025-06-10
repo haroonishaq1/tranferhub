@@ -182,9 +182,43 @@ class SendAnywhereApp {    constructor() {
                 receiveMessage.className = 'status-error';
             }
         });
-    }
+    }    setupEventListeners() {
+        // File selection
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            this.handleFileSelection(e.target.files);
+        });
 
-    setupEventListeners() {
+        // Generate code button
+        document.getElementById('generate-code-btn').addEventListener('click', () => {
+            this.generateCode();
+        });
+
+        // Copy code button
+        document.getElementById('copy-code-btn').addEventListener('click', () => {
+            this.copyCode();
+        });
+
+        // Receive button
+        document.getElementById('receive-btn').addEventListener('click', () => {
+            this.joinTransfer();
+        });
+
+        // Receive code input
+        const codeInput = document.getElementById('receive-code-input');
+        codeInput.addEventListener('input', (e) => {
+            // Filter to digits only and limit length
+            e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+            
+            // Visual cue when 6 digits are entered
+            if (e.target.value.length === 6) {
+                e.target.style.borderColor = '#4CAF50';
+                document.getElementById('receive-btn').classList.add('bounce-in');
+            } else {
+                e.target.style.borderColor = '';
+                document.getElementById('receive-btn').classList.remove('bounce-in');
+            }
+        });
+
         // Cancel/Reset buttons
         document.getElementById('cancel-transfer-btn').addEventListener('click', () => {
             this.resetTransfer();
@@ -506,8 +540,63 @@ class SendAnywhereApp {    constructor() {
             generateButton.disabled = false;
             generateButton.innerHTML = 'Upload Files';
         }
+          this.showToast('Code generated successfully!', 'success');
+    }
+
+    copyCode() {
+        if (this.currentCode) {
+            navigator.clipboard.writeText(this.currentCode)
+                .then(() => {
+                    // Visual feedback
+                    const btn = document.getElementById('copy-code-btn');
+                    if (!btn) return;
+                    
+                    const originalText = btn.innerHTML;
+                    
+                    // Change button appearance
+                    btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+                    btn.style.background = '#4CAF50';
+                    btn.style.color = 'white';
+                    
+                    // Show toast
+                    this.showToast('Code copied to clipboard!', 'success');
+                    
+                    // Reset the button after a delay
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.style.background = '';
+                        btn.style.color = '';
+                    }, 2000);
+                })
+                .catch(err => {
+                    console.error('Could not copy text: ', err);
+                    this.showToast('Failed to copy code', 'error');
+                });
+        }
+    }
+
+    joinTransfer() {
+        const codeInput = document.getElementById('receive-code-input');
+        if (!codeInput) return;
         
-        this.showToast('Code generated successfully!', 'success');
+        const code = codeInput.value;
+        
+        if (code.length !== 6) {
+            this.showToast('Please enter a 6-digit code', 'warning');
+            return;
+        }
+
+        this.isReceiver = true;
+        this.socket.emit('join-room', { code });
+        
+        const receiveStatus = document.getElementById('receive-status');
+        const receiveMessage = document.getElementById('receive-message');
+        
+        if (receiveStatus) receiveStatus.classList.remove('hidden');
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Connecting...';
+            receiveMessage.className = 'status-waiting';
+        }
     }
 
     displayVerificationCode(code) {
