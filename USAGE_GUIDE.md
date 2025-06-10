@@ -44,7 +44,7 @@ A peer-to-peer file transfer application similar to SendAnywhere, built with Nod
    ```
 
 4. **Access the Application**
-   Open your browser and go to: `http://localhost:5000`
+   Open your browser and go to: `http://localhost:4999`
 
 ## How It Works
 
