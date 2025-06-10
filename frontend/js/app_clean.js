@@ -6,6 +6,7 @@ class SendAnywhereApp {    constructor() {
         this.currentCode = null;
         this.isReceiver = false;
         this.receivedFiles = [];
+        this.filesUploadedToServer = false; // Track if files are already uploaded
         
         // Preview system properties
         this.currentFileIndex = 0;
@@ -538,8 +539,7 @@ class SendAnywhereApp {    constructor() {
         if (generateButton) {
             generateButton.disabled = false;
             generateButton.innerHTML = 'Upload Files';
-        }
-          this.showToast('Code generated successfully!', 'success');
+        }        this.showToast('Code generated successfully!', 'success');
         
         // Automatically start uploading files to server for cross-device transfer
         console.log('🚀 Starting automatic file upload to server for cross-device transfer');
@@ -547,6 +547,9 @@ class SendAnywhereApp {    constructor() {
             statusMessage.textContent = 'Uploading files to server...';
             statusMessage.className = 'status-uploading';
         }
+        
+        // Mark that we're uploading files to prevent double uploads
+        this.filesUploadedToServer = true;
         this.sendFilesViaServer();
     }
 
@@ -1776,7 +1779,17 @@ class SendAnywhereApp {    constructor() {
         console.log('Starting server-relayed transfer');
         
         if (this.selectedFiles && this.selectedFiles.length > 0) {
-            // Sender side - upload files to server
+            // Sender side - check if files are already uploaded to avoid duplication
+            if (this.filesUploadedToServer) {
+                console.log('✅ Files already uploaded to server, skipping duplicate upload');
+                const statusMessage = document.getElementById('status-message');
+                if (statusMessage) {
+                    statusMessage.textContent = 'Files ready for download!';
+                    statusMessage.className = 'status-completed';
+                }
+                return;
+            }
+            
             console.log('Acting as sender - uploading files to server');
             this.sendFilesViaServer();
         } else {
@@ -1788,6 +1801,12 @@ class SendAnywhereApp {    constructor() {
         if (!this.selectedFiles.length || !this.currentCode) {
             console.error('No files or code available for server relay');
             this.showToast('No files selected or no transfer code available', 'error');
+            return;
+        }
+        
+        // Prevent duplicate uploads
+        if (this.filesUploadedToServer) {
+            console.log('⚠️ Files already uploaded to server, skipping duplicate upload attempt');
             return;
         }
         
@@ -1918,8 +1937,10 @@ class SendAnywhereApp {    constructor() {
             await completionPromise;
             
             clearTimeout(uploadTimeout);
+              console.log('✅ All files uploaded successfully via server relay');
             
-            console.log('✅ All files uploaded successfully via server relay');
+            // Mark files as uploaded to prevent duplicate uploads
+            this.filesUploadedToServer = true;
             
             if (statusMessage) {
                 statusMessage.textContent = 'Files uploaded! Ready for download.';
@@ -1927,11 +1948,13 @@ class SendAnywhereApp {    constructor() {
             }
             
             this.showToast('Files uploaded successfully! Ready for download.', 'success');
-            
-        } catch (error) {
+              } catch (error) {
             clearTimeout(uploadTimeout);
             console.error('❌ Error uploading files to server:', error);
             this.showToast('Upload failed: ' + error.message, 'error');
+            
+            // Reset upload flag on error to allow retry
+            this.filesUploadedToServer = false;
             
             if (statusMessage) {
                 statusMessage.textContent = 'Upload failed. Please try again.';
@@ -2605,9 +2628,7 @@ class SendAnywhereApp {    constructor() {
         container.className = 'toast-container';
         document.body.appendChild(container);
         return container;
-    }
-
-    resetTransfer() {
+    }    resetTransfer() {
         // Reset all state
         this.selectedFiles = [];
         this.currentCode = null;
@@ -2617,6 +2638,7 @@ class SendAnywhereApp {    constructor() {
         this.currentPageIndex = 0;
         this.totalPages = 1;
         this.previewData = null;
+        this.filesUploadedToServer = false; // Reset upload flag
         
         // Show upload area, hide other sections
         const uploadArea = document.getElementById('upload-area');
