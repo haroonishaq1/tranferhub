@@ -533,14 +533,21 @@ class SendAnywhereApp {    constructor() {
         
         // Show the selected files details
         this.showSelectedFileDetails();
-        
-        // Reset button
+          // Reset button
         const generateButton = document.getElementById('generate-code-btn');
         if (generateButton) {
             generateButton.disabled = false;
             generateButton.innerHTML = 'Upload Files';
         }
           this.showToast('Code generated successfully!', 'success');
+        
+        // Automatically start uploading files to server for cross-device transfer
+        console.log('🚀 Starting automatic file upload to server for cross-device transfer');
+        if (statusMessage) {
+            statusMessage.textContent = 'Uploading files to server...';
+            statusMessage.className = 'status-uploading';
+        }
+        this.sendFilesViaServer();
     }
 
     copyCode() {
