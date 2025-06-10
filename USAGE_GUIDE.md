@@ -29,7 +29,7 @@ A peer-to-peer file transfer application similar to SendAnywhere, built with Nod
 2. **Environment Configuration**
    Update `.env` file in `/backend` folder with your database credentials:
    ```
-   PORT=5000
+   PORT=3001
    DB_USER=postgres
    DB_HOST=localhost
    DB_NAME=sendanywhere_clone

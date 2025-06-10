@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Connection Diagnostics</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .header {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #2c5aa0;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.warning { background: #fff3cd; color: #856404; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        .log {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin: 10px 0;
+        }
+        .candidates {
+            margin: 10px 0;
+        }
+        .candidate {
+            padding: 5px;
+            margin: 2px 0;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 11px;
+        }
+        .candidate.host { background: #e3f2fd; }
+        .candidate.srflx { background: #f3e5f5; }
+        .candidate.relay { background: #e8f5e8; }
+        button {
+            background: #2c5aa0;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #1e3f73; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 WebRTC Connection Diagnostics</h1>
+            <p>This tool will help diagnose why P2P connections fail between devices</p>
+        </div>
+
+        <div class="test-section">
+            <h3>📡 Network Information</h3>
+            <div id="network-info">
+                <p><strong>User Agent:</strong> <span id="user-agent"></span></p>
+                <p><strong>Connection Type:</strong> <span id="connection-type"></span></p>
+                <p><strong>WebRTC Support:</strong> <span id="webrtc-support"></span></p>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>🎯 STUN/TURN Server Tests</h3>
+            <button onclick="testStunTurnServers()">Test All Servers</button>
+            <div id="server-tests"></div>
+        </div>
+
+        <div class="grid">
+            <div class="test-section">
+                <h3>🧊 ICE Candidate Collection</h3>
+                <button onclick="collectIceCandidates()">Collect ICE Candidates</button>
+                <div id="ice-status"></div>
+                <div id="ice-candidates"></div>
+            </div>
+
+            <div class="test-section">
+                <h3>🔗 P2P Connection Test</h3>
+                <button onclick="testP2PConnection()">Test Local P2P</button>
+                <div id="p2p-status"></div>
+                <div class="log" id="p2p-log"></div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Connection Statistics</h3>
+            <div id="connection-stats"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>💡 Recommendations</h3>
+            <div id="recommendations"></div>
+        </div>
+    </div>
+
+    <script>
+        // ICE servers configuration (same as in your app)
+        const iceServers = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun.stunprotocol.org:3478' },
+            { urls: 'stun:stun.voiparound.com' },
+            { urls: 'stun:stun.voipbuster.com' },
+            { urls: 'stun:stun.voipstunt.com' },
+            { urls: 'stun:stun.voxgratia.org' },
+            {
+                urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: ['turn:relay1.expressturn.com:3478'],
+                username: 'efJBIBVP6ETOFD3XKX',
+                credential: 'WmtzanB3ZnpERzRYVw'
+            },
+            {
+                urls: 'turn:numb.viagenie.ca',
+                username: 'webrtc@live.com',
+                credential: 'muazkh'
+            },
+            {
+                urls: ['turn:turn.bistri.com:80'],
+                username: 'homeo',
+                credential: 'homeo'
+            },
+            {
+                urls: ['turn:turn.anyfirewall.com:443?transport=tcp'],
+                username: 'webrtc',
+                credential: 'webrtc'
+            }
+        ];
+
+        let diagnosticsData = {
+            stunTests: [],
+            iceCandidates: [],
+            connectionAttempts: [],
+            recommendations: []
+        };
+
+        // Initialize diagnostics
+        function initDiagnostics() {
+            // Network information
+            document.getElementById('user-agent').textContent = navigator.userAgent;
+            document.getElementById('connection-type').textContent = 
+                navigator.connection ? navigator.connection.effectiveType : 'Unknown';
+            
+            // WebRTC support
+            const hasWebRTC = !!(window.RTCPeerConnection || window.webkitRTCPeerConnection);
+            const webrtcEl = document.getElementById('webrtc-support');
+            webrtcEl.innerHTML = hasWebRTC ? 
+                '<span class="status success">Supported</span>' : 
+                '<span class="status error">Not Supported</span>';
+        }
+
+        // Test individual STUN/TURN servers
+        async function testStunTurnServers() {
+            const testResults = document.getElementById('server-tests');
+            testResults.innerHTML = '<p>Testing servers...</p>';
+            
+            const results = [];
+            
+            for (let i = 0; i < iceServers.length; i++) {
+                const server = iceServers[i];
+                const result = await testSingleServer(server, i);
+                results.push(result);
+                
+                // Update UI
+                const serverDiv = document.createElement('div');
+                serverDiv.className = 'candidate';
+                serverDiv.innerHTML = `
+                    <strong>Server ${i + 1}:</strong> ${Array.isArray(server.urls) ? server.urls[0] : server.urls}
+                    <span class="status ${result.success ? 'success' : 'error'}">${result.success ? 'Working' : 'Failed'}</span>
+                    ${result.error ? `<br><small>${result.error}</small>` : ''}
+                `;
+                testResults.appendChild(serverDiv);
+            }
+            
+            diagnosticsData.stunTests = results;
+        }
+
+        // Test a single STUN/TURN server
+        function testSingleServer(server, index) {
+            return new Promise((resolve) => {
+                const pc = new RTCPeerConnection({ iceServers: [server] });
+                const timeout = setTimeout(() => {
+                    pc.close();
+                    resolve({ server, index, success: false, error: 'Timeout' });
+                }, 5000);
+
+                pc.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        clearTimeout(timeout);
+                        pc.close();
+                        resolve({ server, index, success: true, candidate: event.candidate });
+                    }
+                };
+
+                pc.onicegatheringstatechange = () => {
+                    if (pc.iceGatheringState === 'complete') {
+                        clearTimeout(timeout);
+                        pc.close();
+                        resolve({ server, index, success: false, error: 'No candidates generated' });
+                    }
+                };
+
+                // Create a data channel to trigger candidate gathering
+                pc.createDataChannel('test');
+                pc.createOffer().then(offer => pc.setLocalDescription(offer));
+            });
+        }
+
+        // Collect all ICE candidates
+        async function collectIceCandidates() {
+            const statusEl = document.getElementById('ice-status');
+            const candidatesEl = document.getElementById('ice-candidates');
+            
+            statusEl.innerHTML = '<span class="status info">Collecting candidates...</span>';
+            candidatesEl.innerHTML = '';
+            
+            const pc = new RTCPeerConnection({ iceServers });
+            const candidates = [];
+            
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    candidates.push(event.candidate);
+                    displayCandidate(event.candidate, candidatesEl);
+                }
+            };
+            
+            pc.onicegatheringstatechange = () => {
+                if (pc.iceGatheringState === 'complete') {
+                    statusEl.innerHTML = `<span class="status success">Complete: ${candidates.length} candidates</span>`;
+                    analyzeIceCandidates(candidates);
+                    pc.close();
+                }
+            };
+            
+            // Trigger candidate gathering
+            pc.createDataChannel('test');
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            
+            diagnosticsData.iceCandidates = candidates;
+        }
+
+        // Display an ICE candidate
+        function displayCandidate(candidate, container) {
+            const div = document.createElement('div');
+            div.className = `candidate ${candidate.type}`;
+            div.innerHTML = `
+                <strong>${candidate.type.toUpperCase()}:</strong> 
+                ${candidate.address}:${candidate.port} 
+                (${candidate.protocol})
+                <br><small>${candidate.foundation} - Priority: ${candidate.priority}</small>
+            `;
+            container.appendChild(div);
+        }
+
+        // Analyze ICE candidates
+        function analyzeIceCandidates(candidates) {
+            const types = { host: 0, srflx: 0, relay: 0 };
+            candidates.forEach(c => types[c.type]++);
+            
+            const statsEl = document.getElementById('connection-stats');
+            statsEl.innerHTML = `
+                <h4>ICE Candidate Summary:</h4>
+                <p><strong>Host candidates:</strong> ${types.host} (Local IP addresses)</p>
+                <p><strong>Server Reflexive candidates:</strong> ${types.srflx} (Public IP via STUN)</p>
+                <p><strong>Relay candidates:</strong> ${types.relay} (Via TURN servers)</p>
+            `;
+            
+            // Generate recommendations
+            generateRecommendations(types);
+        }
+
+        // Test P2P connection locally
+        async function testP2PConnection() {
+            const statusEl = document.getElementById('p2p-status');
+            const logEl = document.getElementById('p2p-log');
+            
+            statusEl.innerHTML = '<span class="status info">Testing local P2P...</span>';
+            logEl.textContent = '';
+            
+            const pc1 = new RTCPeerConnection({ iceServers });
+            const pc2 = new RTCPeerConnection({ iceServers });
+            
+            const log = (message) => {
+                logEl.textContent += `${new Date().toLocaleTimeString()}: ${message}\n`;
+                logEl.scrollTop = logEl.scrollHeight;
+            };
+            
+            // Set up data channels
+            const dc1 = pc1.createDataChannel('test');
+            pc2.ondatachannel = (event) => {
+                const dc2 = event.channel;
+                dc2.onopen = () => {
+                    log('✅ Data channel opened successfully');
+                    statusEl.innerHTML = '<span class="status success">P2P Connection Successful</span>';
+                    dc2.send('Hello from peer 2!');
+                };
+                dc2.onmessage = (e) => log(`📥 Received: ${e.data}`);
+            };
+            
+            dc1.onopen = () => {
+                log('📤 Sending test message...');
+                dc1.send('Hello from peer 1!');
+            };
+            dc1.onmessage = (e) => log(`📥 Received: ${e.data}`);
+            
+            // Handle ICE candidates
+            pc1.onicecandidate = (e) => {
+                if (e.candidate) {
+                    log(`🧊 PC1 ICE candidate: ${e.candidate.type}`);
+                    pc2.addIceCandidate(e.candidate);
+                }
+            };
+            
+            pc2.onicecandidate = (e) => {
+                if (e.candidate) {
+                    log(`🧊 PC2 ICE candidate: ${e.candidate.type}`);
+                    pc1.addIceCandidate(e.candidate);
+                }
+            };
+            
+            // Monitor connection states
+            pc1.oniceconnectionstatechange = () => {
+                log(`🔄 PC1 ICE state: ${pc1.iceConnectionState}`);
+                if (pc1.iceConnectionState === 'failed') {
+                    statusEl.innerHTML = '<span class="status error">P2P Connection Failed</span>';
+                }
+            };
+            
+            try {
+                // Create offer/answer
+                const offer = await pc1.createOffer();
+                await pc1.setLocalDescription(offer);
+                await pc2.setRemoteDescription(offer);
+                
+                const answer = await pc2.createAnswer();
+                await pc2.setLocalDescription(answer);
+                await pc1.setRemoteDescription(answer);
+                
+                log('🤝 Offer/Answer exchange completed');
+                
+                // Timeout for connection
+                setTimeout(() => {
+                    if (pc1.iceConnectionState !== 'connected' && pc1.iceConnectionState !== 'completed') {
+                        statusEl.innerHTML = '<span class="status warning">P2P Connection Timeout</span>';
+                        log('⏰ Connection timeout - this is normal for cross-device scenarios');
+                    }
+                    pc1.close();
+                    pc2.close();
+                }, 10000);
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                statusEl.innerHTML = '<span class="status error">P2P Test Failed</span>';
+            }
+        }
+
+        // Generate recommendations based on results
+        function generateRecommendations(candidateTypes) {
+            const recommendations = [];
+            
+            if (candidateTypes.relay === 0) {
+                recommendations.push({
+                    type: 'warning',
+                    title: 'No TURN relay candidates',
+                    message: 'Your network might have issues with TURN servers. This will cause cross-device P2P failures.',
+                    solution: 'Check firewall settings or try a different network.'
+                });
+            }
+            
+            if (candidateTypes.srflx === 0) {
+                recommendations.push({
+                    type: 'warning',
+                    title: 'No STUN candidates',
+                    message: 'Cannot determine your public IP address via STUN servers.',
+                    solution: 'Check if STUN traffic (UDP) is blocked by your firewall.'
+                });
+            }
+            
+            if (candidateTypes.host > 0 && candidateTypes.srflx === 0 && candidateTypes.relay === 0) {
+                recommendations.push({
+                    type: 'error',
+                    title: 'Only local candidates available',
+                    message: 'P2P will only work on the same local network.',
+                    solution: 'Use server relay for cross-device transfers.'
+                });
+            }
+            
+            if (candidateTypes.relay > 0) {
+                recommendations.push({
+                    type: 'success',
+                    title: 'TURN relay available',
+                    message: 'Should work for most cross-device scenarios.',
+                    solution: 'P2P should work, but may take time to establish.'
+                });
+            }
+            
+            // Always recommend server relay as fallback
+            recommendations.push({
+                type: 'info',
+                title: 'Server relay fallback',
+                message: 'Your app automatically falls back to server relay when P2P fails.',
+                solution: 'This ensures transfers work regardless of network configuration.'
+            });
+            
+            displayRecommendations(recommendations);
+        }
+
+        // Display recommendations
+        function displayRecommendations(recommendations) {
+            const container = document.getElementById('recommendations');
+            container.innerHTML = '';
+            
+            recommendations.forEach(rec => {
+                const div = document.createElement('div');
+                div.innerHTML = `
+                    <h4><span class="status ${rec.type}">${rec.type.toUpperCase()}</span> ${rec.title}</h4>
+                    <p><strong>Issue:</strong> ${rec.message}</p>
+                    <p><strong>Solution:</strong> ${rec.solution}</p>
+                `;
+                div.style.marginBottom = '15px';
+                container.appendChild(div);
+            });
+        }
+
+        // Initialize when page loads
+        window.onload = initDiagnostics;
+    </script>
+</body>
+</html>

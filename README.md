@@ -73,7 +73,7 @@ hub/
    - Create a PostgreSQL database named `sendanywhere_clone`
    - Update the `.env` file in the backend directory with your database credentials:
    ```env
-   PORT=5000
+   PORT=3001
    DB_USER=postgres
    DB_HOST=localhost
    DB_NAME=sendanywhere_clone

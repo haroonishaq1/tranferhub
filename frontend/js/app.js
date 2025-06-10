@@ -35,11 +35,8 @@ class SendAnywhereApp {
                 this.showToast('PDF preview may not work properly - PDF.js library not loaded', 'warning');
             }, 2000);
         }
-    }
-
-    connectSocket() {
-        // Dynamically determine the server URL based on current location
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    }    getServerUrl() {
+        const protocol = window.location.protocol;
         const hostname = window.location.hostname;
         let port = window.location.port;
           // If we're on port 8000 (frontend), connect to backend on 4999
@@ -53,7 +50,17 @@ class SendAnywhereApp {
             // Default fallback
             serverUrl = 'http://localhost:4999';
         }
+    }
+
+    connectSocket() {
+        // Dynamically determine the server URL based on current environment
+        const protocol = window.location.protocol;
+        const hostname = window.location.hostname;
+        let port = window.location.port;
         
+        let serverUrl = this.getServerUrl();
+        
+        console.log(`Environment: ${hostname !== 'localhost' && hostname !== '127.0.0.1' ? 'Production' : 'Development'}`);
         console.log(`Connecting to socket server at: ${serverUrl}`);
         
         this.socket = io(serverUrl, {
@@ -105,6 +112,18 @@ class SendAnywhereApp {
 
         this.socket.on('signal', (data) => {
             this.handleSignal(data);
+        });
+        
+        this.socket.on('peer-disconnected', (data) => {
+            this.handlePeerDisconnected(data);
+        });
+        
+        this.socket.on('code-expired', (data) => {
+            this.handleCodeExpired(data);
+        });
+        
+        this.socket.on('relay-transfer', (data) => {
+            this.handleRelayTransfer(data);
         });
     }    setupEventListeners() {
         // File selection
@@ -1242,26 +1261,113 @@ class SendAnywhereApp {
     initPeerConnection(initiator, targetSocketId) {
         console.log(`Initializing peer connection - Initiator: ${initiator}, Target: ${targetSocketId}, My ID: ${this.socket.id}`);
         
+        // Enhanced ICE server configuration with multiple STUN and TURN servers
+        const iceServers = [
+            // Google STUN servers
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' },
+            
+            // Additional STUN servers for better connectivity
+            { urls: 'stun:stun.stunprotocol.org:3478' },
+            { urls: 'stun:stun.voiparound.com' },
+            { urls: 'stun:stun.voipbuster.com' },
+            
+            // Multiple free TURN servers for better reliability
+            {
+                urls: 'turn:openrelay.metered.ca:80',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            {
+                urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            },
+            // Alternative free TURN servers
+            {
+                urls: 'turn:relay1.expressturn.com:3478',
+                username: 'efJBIBVP6ETOFD3XKX',
+                credential: 'WmtzanB3ZnpERzRYVw'
+            }
+        ];
+
+        console.log('Using ICE servers:', iceServers.length, 'servers configured');
+
         this.peer = new SimplePeer({
             initiator: initiator,
-            trickle: false
+            trickle: true, // Enable trickle ICE for better connectivity
+            config: {
+                iceServers: iceServers,
+                iceCandidatePoolSize: 10,
+                iceTransportPolicy: 'all' // Use all available transport types
+            },
+            objectMode: true,
+            allowHalfTrickle: true,
+            iceCompleteTimeout: 30000, // 30 seconds timeout for ICE completion
+            offerOptions: {
+                offerToReceiveAudio: false,
+                offerToReceiveVideo: false
+            }
         });
+        
+        // Set connection timeout with better error handling
+        this.connectionTimeout = setTimeout(() => {
+            if (this.peer && !this.peer.connected) {
+                console.error('Connection timeout after 30 seconds');
+                console.log('Peer state:', {
+                    connected: this.peer.connected,
+                    connecting: this.peer.connecting,
+                    destroyed: this.peer.destroyed
+                });
+                
+                // Try to get more detailed connection info
+                if (this.peer._pc) {
+                    console.log('WebRTC connection state:', this.peer._pc.connectionState);
+                    console.log('ICE connection state:', this.peer._pc.iceConnectionState);
+                    console.log('ICE gathering state:', this.peer._pc.iceGatheringState);
+                }
+                
+                this.handleConnectionFailure('Connection timeout - peer connection could not be established');
+            }
+        }, 30000);
 
         this.peer.on('signal', (signal) => {
-            console.log(`Sending signal to ${targetSocketId}`);
+            console.log(`Sending signal to ${targetSocketId}`, signal.type);
             this.socket.emit('signal', {
                 to: targetSocketId,
                 signal: signal
             });
-        });        this.peer.on('connect', () => {
+        });
+
+        this.peer.on('connect', () => {
             console.log('P2P connection established with', targetSocketId);
+            
+            // Clear connection timeout
+            if (this.connectionTimeout) {
+                clearTimeout(this.connectionTimeout);
+                this.connectionTimeout = null;
+            }
+            
+            this.showToast('Connected! Starting transfer...', 'success');
+            
+            // Start connection heartbeat to monitor connection health
+            this.startConnectionHeartbeat();
             
             if (initiator) {
                 // Sender: start sending files
                 console.log('Starting file transfer as sender');
-                this.sendFiles();
+                setTimeout(() => this.sendFiles(), 500); // Small delay to ensure connection is stable
             } else {
                 console.log('Ready to receive files');
+                this.showToast('Ready to receive files...', 'info');
             }
         });
 
@@ -1271,21 +1377,375 @@ class SendAnywhereApp {
 
         this.peer.on('error', (err) => {
             console.error('Peer connection error:', err);
-            this.showToast('Connection failed. Please try again.', 'error');
+            this.handleConnectionFailure(err.message || 'Connection error');
         });
+
+        this.peer.on('close', () => {
+            console.log('Peer connection closed');
+            if (this.connectionTimeout) {
+                clearTimeout(this.connectionTimeout);
+                this.connectionTimeout = null;
+            }
+            
+            // Stop heartbeat
+            this.stopConnectionHeartbeat();
+            
+            this.peer = null;
+        });
+        
+        // Monitor ICE connection state
+        if (this.peer._pc) {
+            this.peer._pc.oniceconnectionstatechange = () => {
+                const state = this.peer._pc.iceConnectionState;
+                console.log('ICE connection state:', state);
+                
+                if (state === 'failed') {
+                    console.error('ICE connection failed - this usually indicates NAT/firewall issues');
+                    this.handleConnectionFailure('Network connection failed - NAT/firewall may be blocking connection');
+                } else if (state === 'disconnected') {
+                    console.warn('ICE connection disconnected - connection may be unstable');
+                    // Don't immediately fail on disconnected, give it time to reconnect
+                    setTimeout(() => {
+                        if (this.peer && this.peer._pc && this.peer._pc.iceConnectionState === 'disconnected') {
+                            this.handleConnectionFailure('Network connection lost');
+                        }
+                    }, 5000);
+                } else if (state === 'connected' || state === 'completed') {
+                    console.log('ICE connection established successfully');
+                }
+            };
+            
+            this.peer._pc.onconnectionstatechange = () => {
+                const state = this.peer._pc.connectionState;
+                console.log('Peer connection state:', state);
+                
+                if (state === 'failed') {
+                    console.error('Peer connection failed');
+                    this.handleConnectionFailure('Peer connection failed');
+                } else if (state === 'connected') {
+                    console.log('Peer connection fully established');
+                }
+            };
+            
+            // Add ICE candidate logging
+            this.peer._pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    console.log('ICE candidate type:', event.candidate.type);
+                } else {
+                    console.log('ICE gathering complete');
+                }
+            };
+        }
+    }
+    
+    startConnectionHeartbeat() {
+        // Send periodic heartbeat messages to check connection health
+        this.heartbeatInterval = setInterval(() => {
+            if (this.peer && this.peer.connected) {
+                try {
+                    this.heartbeatTimestamp = Date.now();
+                    this.peer.send(JSON.stringify({ type: 'heartbeat', timestamp: this.heartbeatTimestamp }));
+                } catch (error) {
+                    console.warn('Heartbeat failed:', error);
+                    this.handleConnectionFailure('Connection lost during heartbeat');
+                }
+            } else {
+                this.stopConnectionHeartbeat();
+            }
+        }, 10000); // Send heartbeat every 10 seconds
+        
+        // Set up heartbeat timeout checker
+        this.heartbeatTimeoutChecker = setInterval(() => {
+            if (this.heartbeatTimestamp && (Date.now() - this.heartbeatTimestamp) > 30000) {
+                console.warn('Heartbeat timeout - no response received');
+                this.handleConnectionFailure('Connection timeout - no heartbeat response');
+            }
+        }, 15000); // Check every 15 seconds
+    }
+    
+    stopConnectionHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
+        
+        if (this.heartbeatTimeoutChecker) {
+            clearInterval(this.heartbeatTimeoutChecker);
+            this.heartbeatTimeoutChecker = null;
+        }
+        
+        this.heartbeatTimestamp = null;
+    }
+    
+    handleConnectionFailure(message) {
+        console.error('Connection failure:', message);
+        
+        // Clear timeout
+        if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+        }
+        
+        // Stop heartbeat
+        this.stopConnectionHeartbeat();
+        
+        // Clean up peer
+        if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+        }
+        
+        // For testing: if this is a local/same-origin transfer, use fallback
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            console.log('Detected local environment, attempting fallback transfer method');
+            this.showToast('WebRTC failed, using fallback method...', 'info', 3000);
+            
+            // Use server-relayed transfer as fallback
+            setTimeout(() => {
+                this.initiateServerRelayedTransfer();
+            }, 2000);
+            return;
+        }
+        
+        // Show user-friendly error message
+        this.showToast(`Connection failed: ${message}. Please try again.`, 'error', 5000);
+        
+        // Update UI to show error state
+        const statusMessage = document.getElementById('status-message');
+        const receiveMessage = document.getElementById('receive-message');
+        
+        if (statusMessage) {
+            statusMessage.textContent = 'Connection failed. Please try again.';
+            statusMessage.className = 'status-error';
+        }
+        
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Connection failed. Please try again.';
+            receiveMessage.className = 'status-error';
+        }
     }
 
     handleSignal(data) {
-        console.log(`Received signal from ${data.from}`);
+        console.log(`Received signal from ${data.from}:`, data.signal.type);
         if (this.peer) {
-            this.peer.signal(data.signal);
+            try {
+                this.peer.signal(data.signal);
+                console.log('Signal processed successfully');
+            } catch (error) {
+                console.error('Error processing signal:', error);
+                this.handleConnectionFailure('Signal processing failed');
+            }
         } else {
             console.warn('Received signal but no peer connection exists');
+            // This might happen if the peer was destroyed due to an error
+            // The sender should retry the connection
+            this.showToast('Connection lost. Please try again.', 'warning');
+        }
+    }
+    
+    handlePeerDisconnected(data) {
+        console.warn('Peer disconnected:', data.socketId);
+        
+        // Clean up current peer connection
+        if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+        }
+        
+        // Clear connection timeout
+        if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+        }
+        
+        // Stop heartbeat
+        this.stopConnectionHeartbeat();
+        
+        // Show user-friendly message and provide retry option
+        this.showToast('The other user disconnected. Please try again.', 'warning', 5000);
+        
+        // Update UI to show disconnection state
+        const statusMessage = document.getElementById('status-message');
+        const receiveMessage = document.getElementById('receive-message');
+        
+        if (statusMessage) {
+            statusMessage.textContent = 'Connection lost. Please try again.';
+            statusMessage.className = 'status-error';
+        }
+        
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Connection lost. Please try again.';
+            receiveMessage.className = 'status-error';
+        }
+    }
+    
+    handleCodeExpired(data) {
+        console.log('Transfer code expired:', data.code);
+        
+        // Clean up peer connection if exists
+        if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+        }
+        
+        // Clear connection timeout
+        if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+        }
+        
+        // Stop heartbeat
+        this.stopConnectionHeartbeat();
+        
+        this.showToast('Transfer code expired. Please generate a new code.', 'warning', 5000);
+        
+        // Reset to initial state
+        this.resetTransfer();
+    }
+    
+    async initiateServerRelayedTransfer() {
+        console.log('Starting server-relayed transfer as fallback');
+        
+        const statusMessage = document.getElementById('status-message');
+        if (statusMessage) {
+            statusMessage.textContent = 'Using fallback transfer method...';
+            statusMessage.className = 'status-transferring';
+        }
+        
+        try {
+            // Convert files to base64 and send via socket
+            const fileData = [];
+            
+            for (const file of this.selectedFiles) {
+                const arrayBuffer = await this.readFileAsArrayBuffer(file);
+                const base64 = this.arrayBufferToBase64(arrayBuffer);
+                
+                fileData.push({
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    data: base64
+                });
+            }
+            
+            // Send files via socket
+            this.socket.emit('relay-transfer', {
+                code: this.currentCode,
+                files: fileData
+            });
+            
+            this.showToast('Files sent via server relay!', 'success');
+            this.handleTransferComplete();
+            
+        } catch (error) {
+            console.error('Server relay transfer failed:', error);
+            this.showToast('All transfer methods failed. Please try again.', 'error');
+        }
+    }
+    
+    arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        
+        return window.btoa(binary);
+    }
+    
+    base64ToArrayBuffer(base64) {
+        const binaryString = window.atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        return bytes.buffer;
+    }
+
+    handleRelayTransfer(data) {
+        console.log('Handling relay transfer:', data);
+        
+        if (!data.files || !Array.isArray(data.files)) {
+            console.error('Invalid relay transfer data');
+            this.showToast('Invalid transfer data received', 'error');
+            return;
+        }
+        
+        const receiveMessage = document.getElementById('receive-message');
+        const receiveProgressBar = document.getElementById('receive-progress-bar');
+        
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Receiving files via server...';
+            receiveMessage.className = 'status-transferring';
+        }
+        
+        if (receiveProgressBar) {
+            receiveProgressBar.classList.remove('hidden');
+        }
+        
+        try {
+            // Process each file from the relay transfer
+            data.files.forEach((fileData, index) => {
+                console.log(`Processing relayed file ${index + 1}: ${fileData.name}`);
+                
+                // Convert base64 back to array buffer
+                const arrayBuffer = this.base64ToArrayBuffer(fileData.data);
+                
+                // Create blob from array buffer
+                const blob = new Blob([arrayBuffer], { type: fileData.type });
+                
+                // Create file object for received files
+                const fileObj = {
+                    name: fileData.name,
+                    size: fileData.size,
+                    type: fileData.type,
+                    blob: blob,
+                    url: URL.createObjectURL(blob)
+                };
+                
+                // Add to received files
+                this.receivedFiles.push(fileObj);
+                
+                // Display the received file
+                this.displayReceivedFile(fileObj);
+                
+                // Update progress
+                const progress = ((index + 1) / data.files.length) * 100;
+                const receiveProgressFill = document.querySelector('#receive-progress-bar .progress-fill');
+                if (receiveProgressFill) {
+                    receiveProgressFill.style.width = progress + '%';
+                }
+            });
+            
+            // Complete the transfer
+            this.handleReceiveComplete();
+            this.showToast(`Received ${data.files.length} files via server relay!`, 'success');
+            
+        } catch (error) {
+            console.error('Error processing relay transfer:', error);
+            this.showToast('Error processing received files', 'error');
         }
     }
 
     async sendFiles() {
-        if (!this.peer || !this.selectedFiles.length) return;
+        if (!this.peer || !this.selectedFiles.length) {
+            console.error('No peer connection or no files selected');
+            return;
+        }
+
+        // Check connection state before starting transfer
+        if (!this.peer.connected) {
+            console.error('Peer not connected, cannot send files');
+            this.showToast('Connection not established. Please wait and try again.', 'error');
+            return;
+        }
+
+        console.log(`Starting to send ${this.selectedFiles.length} files`);
 
         const statusMessage = document.getElementById('status-message');
         const progressBar = document.getElementById('progress-bar');
@@ -1299,110 +1759,212 @@ class SendAnywhereApp {
             progressBar.classList.remove('hidden');
         }
 
-        let fileIndex = 0;
-        let totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
-        let sentSize = 0;
+        try {
+            // Send files one by one to avoid memory issues
+            let totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
+            let sentSize = 0;
 
-        // Check if we need to create a ZIP file
-        const zipFile = await this.createZipFile();
-        if (zipFile) {
-            // Send ZIP file metadata
-            this.peer.send(JSON.stringify({
-                type: 'file-start',
-                name: zipFile.name,
-                size: zipFile.size,
-                type: zipFile.type
-            }));
+            // Send total files count first
+            await this.sendMessage({
+                type: 'transfer-start',
+                totalFiles: this.selectedFiles.length,
+                totalSize: totalSize
+            });
 
-            // Read and send ZIP file in chunks
-            const chunkSize = 16384; // 16KB chunks
-            let offset = 0;
+            for (let i = 0; i < this.selectedFiles.length; i++) {
+                const file = this.selectedFiles[i];
+                console.log(`Sending file ${i + 1}/${this.selectedFiles.length}: ${file.name}`);
+                
+                // Send file metadata
+                await this.sendMessage({
+                    type: 'file-start',
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    index: i
+                });
 
-            const sendChunk = () => {
-                const reader = new FileReader();
-                const slice = zipFile.slice(offset, offset + chunkSize);
+                // Send file in adaptive chunks based on connection quality
+                let chunkSize = this.getAdaptiveChunkSize(); // Start with adaptive chunk size
+                let offset = 0;
+                let failedChunks = 0;
 
-                reader.onload = (e) => {
-                    this.peer.send(e.target.result);
-                    offset += chunkSize;
-                    sentSize += Math.min(chunkSize, zipFile.size - (offset - chunkSize));
-
-                    // Update progress
-                    const progress = (sentSize / totalSize) * 100;
-                    const progressFill = document.querySelector('.progress-fill');
-                    if (progressFill) {
-                        progressFill.style.width = progress + '%';
+                while (offset < file.size) {
+                    // Check if connection is still alive
+                    if (!this.peer || !this.peer.connected) {
+                        throw new Error('Connection lost during transfer');
                     }
 
-                    if (offset < zipFile.size) {
-                        sendChunk();
-                    } else {
-                        // ZIP file sent, now send individual files
-                        fileIndex = 0;
-                        sendNextFile();
+                    const chunk = file.slice(offset, Math.min(offset + chunkSize, file.size));
+                    const arrayBuffer = await this.readFileAsArrayBuffer(chunk);
+                    
+                    try {
+                        // Send chunk with retry mechanism
+                        await this.sendChunkWithRetry(arrayBuffer, 3);
+                        offset += chunk.size;
+                        sentSize += chunk.size;
+                        
+                        // Reset failed chunks counter on success
+                        failedChunks = 0;
+
+                        // Update progress
+                        const progress = (sentSize / totalSize) * 100;
+                        const progressFill = document.querySelector('.progress-fill');
+                        if (progressFill) {
+                            progressFill.style.width = progress + '%';
+                        }
+
+                        // Adaptive delay based on chunk size and connection quality
+                        await new Promise(resolve => setTimeout(resolve, this.getAdaptiveDelay(chunkSize)));
+                        
+                    } catch (error) {
+                        failedChunks++;
+                        console.warn(`Chunk failed ${failedChunks} times, adjusting chunk size`);
+                        
+                        // Reduce chunk size on repeated failures
+                        if (failedChunks >= 2) {
+                            chunkSize = Math.max(1024, chunkSize / 2); // Minimum 1KB chunks
+                            console.log(`Reduced chunk size to ${chunkSize} bytes`);
+                        }
+                        
+                        if (failedChunks >= 5) {
+                            throw new Error('Too many chunk failures, connection unstable');
+                        }
+                        
+                        // Small delay before retry
+                        await new Promise(resolve => setTimeout(resolve, 1000));
                     }
-                };
+                }
 
-                reader.readAsArrayBuffer(slice);
-            };
+                // Send file end marker
+                await this.sendMessage({ 
+                    type: 'file-end',
+                    index: i
+                });
 
-            sendChunk();
-        } else {
-            // No ZIP file created, send files individually
-            sendNextFile();
-        }
-
-        const sendNextFile = () => {
-            if (fileIndex >= this.selectedFiles.length) {
-                // All files sent
-                this.peer.send(JSON.stringify({ type: 'complete' }));
-                this.handleTransferComplete();
-                return;
+                console.log(`File ${i + 1} sent successfully`);
             }
 
-            const file = this.selectedFiles[fileIndex];
-            const chunkSize = 16384; // 16KB chunks
-            let offset = 0;
+            // Send completion marker
+            await this.sendMessage({ type: 'transfer-complete' });
+            this.handleTransferComplete();
 
-            // Send file metadata
-            this.peer.send(JSON.stringify({
-                type: 'file-start',
-                name: file.name,
-                size: file.size,
-                type: file.type
-            }));
-
-            const sendChunk = () => {
-                const reader = new FileReader();
-                const slice = file.slice(offset, offset + chunkSize);
-
-                reader.onload = (e) => {
-                    this.peer.send(e.target.result);
-                    offset += chunkSize;
-                    sentSize += Math.min(chunkSize, file.size - (offset - chunkSize));
-
-                    // Update progress
-                    const progress = (sentSize / totalSize) * 100;
-                    const progressFill = document.querySelector('.progress-fill');
-                    if (progressFill) {
-                        progressFill.style.width = progress + '%';
-                    }
-
-                    if (offset < file.size) {
-                        sendChunk();
-                    } else {
-                        // File complete
-                        this.peer.send(JSON.stringify({ type: 'file-end' }));
-                        fileIndex++;
-                        sendNextFile();
-                    }
-                };
-
-                reader.readAsArrayBuffer(slice);
-            };
-
-            sendChunk();
-        };
+        } catch (error) {
+            console.error('Error during file transfer:', error);
+            this.showToast('File transfer failed: ' + error.message, 'error');
+            
+            // Send error to receiver
+            try {
+                await this.sendMessage({ 
+                    type: 'transfer-error',
+                    message: error.message
+                });
+            } catch (signalError) {
+                console.error('Failed to send error message to receiver:', signalError);
+            }
+        }
+    }
+    
+    async sendMessage(message) {
+        return new Promise((resolve, reject) => {
+            if (!this.peer || !this.peer.connected) {
+                reject(new Error('Peer not connected'));
+                return;
+            }
+            
+            try {
+                this.peer.send(JSON.stringify(message));
+                resolve();
+            } catch (error) {
+                reject(error);
+            }
+        });
+    }
+    
+    getAdaptiveChunkSize() {
+        // Start with different chunk sizes based on connection type detection
+        const connectionInfo = this.getConnectionInfo();
+        
+        if (connectionInfo.type === 'local') {
+            return 32768; // 32KB for local connections
+        } else if (connectionInfo.type === 'fast') {
+            return 16384; // 16KB for fast connections
+        } else if (connectionInfo.type === 'slow') {
+            return 4096;  // 4KB for slow connections
+        } else {
+            return 8192;  // 8KB default
+        }
+    }
+    
+    getAdaptiveDelay(chunkSize) {
+        // Calculate delay based on chunk size and estimated connection speed
+        const baseDelay = 10; // Base delay in ms
+        const sizeMultiplier = chunkSize / 8192; // Ratio to base chunk size
+        
+        // Slower connections need more delay
+        const connectionInfo = this.getConnectionInfo();
+        let connectionMultiplier = 1;
+        
+        if (connectionInfo.type === 'slow') {
+            connectionMultiplier = 3;
+        } else if (connectionInfo.type === 'medium') {
+            connectionMultiplier = 2;
+        } else if (connectionInfo.type === 'fast') {
+            connectionMultiplier = 0.5;
+        }
+        
+        return Math.max(10, baseDelay * sizeMultiplier * connectionMultiplier);
+    }
+    
+    getConnectionInfo() {
+        // Simple connection type detection based on various factors
+        // In a real implementation, you might use navigator.connection API
+        
+        let type = 'medium';
+        let quality = 'good';
+        
+        // Use navigator.connection if available (limited browser support)
+        if (navigator.connection) {
+            const conn = navigator.connection;
+            const effectiveType = conn.effectiveType;
+            
+            if (effectiveType === '4g' || effectiveType === '5g') {
+                type = 'fast';
+            } else if (effectiveType === '3g') {
+                type = 'medium';
+            } else if (effectiveType === '2g' || effectiveType === 'slow-2g') {
+                type = 'slow';
+            }
+        }
+        
+        // For local connections (same origin), assume fast
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            type = 'local';
+        }
+        
+        return { type, quality };
+    }
+    
+    async sendChunkWithRetry(arrayBuffer, maxRetries = 3) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                if (!this.peer || !this.peer.connected) {
+                    throw new Error('Peer not connected');
+                }
+                
+                this.peer.send(arrayBuffer);
+                return; // Success
+            } catch (error) {
+                console.warn(`Chunk send attempt ${attempt} failed:`, error);
+                
+                if (attempt === maxRetries) {
+                    throw new Error(`Failed to send chunk after ${maxRetries} attempts`);
+                }
+                
+                // Wait before retry with exponential backoff
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
+            }
+        }
     }
 
     handleIncomingData(data) {
@@ -1414,12 +1976,46 @@ class SendAnywhereApp {
             const receiveProgressBar = document.getElementById('receive-progress-bar');
             
             switch (message.type) {
+                case 'heartbeat':
+                    // Respond to heartbeat to confirm connection is alive
+                    if (this.peer && this.peer.connected) {
+                        try {
+                            this.peer.send(JSON.stringify({ type: 'heartbeat-response', timestamp: Date.now() }));
+                        } catch (error) {
+                            console.warn('Failed to respond to heartbeat:', error);
+                        }
+                    }
+                    break;
+                    
+                case 'heartbeat-response':
+                    // Connection is alive, reset heartbeat timestamp
+                    console.log('Heartbeat response received, connection is healthy');
+                    this.heartbeatTimestamp = null; // Reset timeout tracker
+                    break;
+                    
+                case 'transfer-start':
+                    console.log(`Starting to receive ${message.totalFiles} files, total size: ${this.formatFileSize(message.totalSize)}`);
+                    this.transferInfo = {
+                        totalFiles: message.totalFiles,
+                        totalSize: message.totalSize,
+                        receivedFiles: 0,
+                        receivedSize: 0
+                    };
+                    
+                    if (receiveMessage) {
+                        receiveMessage.textContent = `Receiving ${message.totalFiles} files...`;
+                        receiveMessage.className = 'status-transferring';
+                    }
+                    break;
+                    
                 case 'file-start':
+                    console.log(`Starting to receive file: ${message.name} (${this.formatFileSize(message.size)})`);
                     this.currentReceivingFile = {
                         name: message.name,
                         size: message.size,
                         type: message.type,
-                        chunks: []
+                        chunks: [],
+                        startTime: Date.now()
                     };
                     
                     if (receiveMessage) {
@@ -1433,11 +2029,18 @@ class SendAnywhereApp {
                     break;
                 
                 case 'file-end':
+                    console.log(`File transfer completed: ${this.currentReceivingFile?.name}`);
                     this.completeFileReceive();
                     break;
                 
-                case 'complete':
+                case 'transfer-complete':
+                    console.log('All files received successfully');
                     this.handleReceiveComplete();
+                    break;
+                    
+                case 'transfer-error':
+                    console.error('Transfer error from sender:', message.message);
+                    this.showToast(`Transfer failed: ${message.message}`, 'error');
                     break;
             }
         } catch (e) {
@@ -1445,29 +2048,63 @@ class SendAnywhereApp {
             if (this.currentReceivingFile) {
                 this.currentReceivingFile.chunks.push(data);
                 
-                // Update progress
+                // Update progress with better calculation
                 const received = this.currentReceivingFile.chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-                const progress = (received / this.currentReceivingFile.size) * 100;
+                const fileProgress = (received / this.currentReceivingFile.size) * 100;
                 
+                // Update file progress
                 const progressFill = document.querySelector('#receive-progress-bar .progress-fill');
                 if (progressFill) {
-                    progressFill.style.width = progress + '%';
+                    progressFill.style.width = Math.min(fileProgress, 100) + '%';
                 }
+                
+                // Update transfer info if available
+                if (this.transferInfo) {
+                    this.transferInfo.receivedSize = this.transferInfo.receivedSize || 0;
+                    // Note: This is an approximation of total progress
+                    const totalProgress = ((this.transferInfo.receivedFiles * 100) + fileProgress) / this.transferInfo.totalFiles;
+                    
+                    const receiveMessage = document.getElementById('receive-message');
+                    if (receiveMessage) {
+                        receiveMessage.textContent = `Receiving: ${this.currentReceivingFile.name} (${Math.round(fileProgress)}%)`;
+                    }
+                }
+                
+                // Log progress periodically
+                if (this.currentReceivingFile.chunks.length % 100 === 0) {
+                    console.log(`Received ${this.currentReceivingFile.chunks.length} chunks for ${this.currentReceivingFile.name}`);
+                }
+            } else {
+                console.warn('Received binary data but no current receiving file');
             }
         }
     }
 
     completeFileReceive() {
-        if (!this.currentReceivingFile) return;
+        if (!this.currentReceivingFile) {
+            console.warn('No current receiving file to complete');
+            return;
+        }
 
-        // Combine all chunks
+        const startTime = this.currentReceivingFile.startTime;
+        const transferTime = Date.now() - startTime;
+        console.log(`Completing file: ${this.currentReceivingFile.name}, transfer time: ${transferTime}ms`);
+
+        // Validate file integrity
         const totalSize = this.currentReceivingFile.chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+        if (totalSize !== this.currentReceivingFile.size) {
+            console.error(`File size mismatch: expected ${this.currentReceivingFile.size}, got ${totalSize}`);
+            this.showToast(`File ${this.currentReceivingFile.name} may be corrupted`, 'warning');
+        }
+
+        // Combine all chunks efficiently
         const combinedArray = new Uint8Array(totalSize);
         let offset = 0;
 
         this.currentReceivingFile.chunks.forEach(chunk => {
-            combinedArray.set(new Uint8Array(chunk), offset);
-            offset += chunk.byteLength;
+            const chunkArray = new Uint8Array(chunk);
+            combinedArray.set(chunkArray, offset);
+            offset += chunkArray.byteLength;
         });
 
         // Create blob and download link
@@ -1476,13 +2113,24 @@ class SendAnywhereApp {
             name: this.currentReceivingFile.name,
             size: this.currentReceivingFile.size,
             blob: blob,
-            url: URL.createObjectURL(blob)
+            url: URL.createObjectURL(blob),
+            transferTime: transferTime
         };
 
         this.receivedFiles.push(file);
         this.displayReceivedFile(file);
         
+        // Update transfer info
+        if (this.transferInfo) {
+            this.transferInfo.receivedFiles++;
+            this.transferInfo.receivedSize += totalSize;
+        }
+        
+        // Clear current file and chunks to free memory
+        this.currentReceivingFile.chunks = null;
         this.currentReceivingFile = null;
+        
+        console.log(`File completed: ${file.name}, ${this.formatFileSize(file.size)}`);
     }    displayReceivedFile(file) {
         const receivedFilesDiv = document.getElementById('received-files');
         const fileList = document.getElementById('received-file-list');
@@ -1559,7 +2207,7 @@ class SendAnywhereApp {
         
         // Log transfer stats
         const totalSize = this.selectedFiles.reduce((sum, file) => sum + file.size, 0);
-        fetch('http://localhost:5000/api/files/log-transfer', {
+        fetch(`${this.getServerUrl()}/api/files/log-transfer`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

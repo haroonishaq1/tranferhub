@@ -1,14 +1,22 @@
 <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title>TransferHub - Send Files Instantly & Securely</title>    <link rel="stylesheet" href="css/style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TransferHub - Send Files Instantly & Securely</title>
+    
+    <!-- CSS Files -->
+    <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/inline-files.css">
     <link rel="stylesheet" href="css/preview.css">
     <link rel="stylesheet" href="css/animations.css">
     <link rel="stylesheet" href="css/header.css">
     <link rel="stylesheet" href="css/footer.css">
-    <link rel="stylesheet" href="css/security.css">    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet"><!-- PDF.js Library -->
+    <link rel="stylesheet" href="css/security.css">
+    
+    <!-- External CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet"><!-- PDF.js Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script>
         // Configure PDF.js worker
@@ -63,9 +71,29 @@
                                     <small>Supports videos, images, documents and other formats up to 50GB</small>
                                     <input type="file" id="file-input" multiple hidden>
                                 </div>
-                            </div>
-                            <div class="action-button">
+                            </div>                            <div class="action-button">
                                 <button id="generate-code-btn" class="btn btn-primary">Upload Files</button>
+                            </div>
+                            
+                            <!-- Debug Tools -->
+                            <div class="debug-tools" style="margin-top: 20px; padding: 15px; border: 1px dashed #ccc; border-radius: 5px; background: #f9f9f9;">
+                                <details>
+                                    <summary style="cursor: pointer; font-weight: bold; color: #666;">🔧 Connection Debug Tools</summary>
+                                    <div style="margin-top: 10px;">
+                                        <button onclick="window.open('/webrtc-diagnostics.html', '_blank')" 
+                                                style="background: #28a745; color: white; border: none; padding: 8px 15px; margin: 5px; border-radius: 4px; cursor: pointer;">
+                                            🔍 Open WebRTC Diagnostics
+                                        </button>
+                                        <button onclick="app.testP2PConnectivity()" 
+                                                style="background: #17a2b8; color: white; border: none; padding: 8px 15px; margin: 5px; border-radius: 4px; cursor: pointer;">
+                                            🧪 Test P2P Connectivity
+                                        </button>
+                                        <button onclick="console.clear(); console.log('Console cleared for debugging')" 
+                                                style="background: #6c757d; color: white; border: none; padding: 8px 15px; margin: 5px; border-radius: 4px; cursor: pointer;">
+                                            🗑️ Clear Console
+                                        </button>
+                                    </div>
+                                </details>
                             </div>
                         </div>
                           <!-- Simple File List (shown after file selection, before upload) -->
@@ -512,11 +540,17 @@
     <script src="https://cdn.jsdelivr.net/npm/simple-peer@9.11.1/simplepeer.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
+    <!-- Production Configuration for Cross-Device Connectivity -->
+    <script src="js/production-config.js"></script>
+    
     <script src="js/animations.js"></script>
     <script src="js/header.js"></script>
     <script src="js/footer.js"></script>
     <script src="js/security.js"></script>
-    <script src="js/app.js"></script>
+    <!-- Production optimization -->
+    <script src="js/production-config.js"></script>
+    <script src="js/app_clean.js"></script>
     
     <script>
         // Initialize new components when DOM is loaded

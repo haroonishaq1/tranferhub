@@ -37,8 +37,7 @@ class SendAnywhereApp {
         }
     }
     
-    connectSocket() {
-        // Dynamically determine the server URL based on current location
+    connectSocket() {        // Dynamically determine the server URL based on current location
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const hostname = window.location.hostname;
         let port = window.location.port;
@@ -48,6 +47,13 @@ class SendAnywhereApp {
         if (port === '8000') {
             serverUrl = `http://${hostname}:4999`;
         } else if (port === '4999' || !port) {
+            serverUrl = `http://${hostname}:4999`;
+        } else {
+            // Default fallback
+            serverUrl = 'http://localhost:4999';
+        let serverUrl;
+        if (port === '8000') {
+            serverUrl = `http://${hostname}:4999`;        } else if (port === '4999' || !port) {
             serverUrl = `http://${hostname}:4999`;
         } else {
             // Default fallback

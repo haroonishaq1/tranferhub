@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connection Troubleshooting - TransferHub</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.warning { background: #fff3cd; color: #856404; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Connection Troubleshooting</h1>
+            <p>This tool helps diagnose why file transfers fail between devices</p>
+        </div>
+
+        <div class="test-section">
+            <h3>🌐 Connection Status</h3>
+            <div id="connection-status" class="status info">Checking connection...</div>
+            <button onclick="testConnection()">Test Connection</button>
+        </div>
+
+        <div class="test-section">
+            <h3>📱 Device Information</h3>
+            <div id="device-info"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔍 Common Issues & Solutions</h3>
+            <div id="solutions">
+                <h4>If you see "Connection Failed" error:</h4>
+                <ul>
+                    <li><strong>Different Networks:</strong> Make sure both devices are connected to the internet (WiFi/mobile data)</li>
+                    <li><strong>Server Relay:</strong> The app should automatically use server relay for cross-device transfers</li>
+                    <li><strong>Upload Issues:</strong> Try refreshing the page and uploading files again</li>
+                    <li><strong>Download Issues:</strong> Make sure the transfer code is correct and files were uploaded successfully</li>
+                </ul>
+                
+                <h4>If upload button doesn't work:</h4>
+                <ul>
+                    <li>Make sure you've selected files first</li>
+                    <li>Check if JavaScript is enabled in your browser</li>
+                    <li>Try refreshing the page</li>
+                    <li>Check browser console for errors (F12 → Console)</li>
+                </ul>
+                
+                <h4>Cross-device transfer tips:</h4>
+                <ul>
+                    <li>P2P connections often fail between different networks - this is normal</li>
+                    <li>The app will automatically fall back to server relay</li>
+                    <li>Server relay uploads files to our server temporarily for download</li>
+                    <li>Make sure both devices have stable internet connections</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Test Results</h3>
+            <div class="log" id="test-log">Click "Test Connection" to start diagnostics...</div>
+        </div>
+
+        <div class="test-section">
+            <h3>🏠 Return to App</h3>
+            <button onclick="window.location.href='/'">Back to TransferHub</button>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        let socket;
+        
+        function log(message) {
+            const logEl = document.getElementById('test-log');
+            const timestamp = new Date().toLocaleTimeString();
+            logEl.textContent += `[${timestamp}] ${message}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        function updateStatus(message, type = 'info') {
+            const statusEl = document.getElementById('connection-status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+        
+        function initDiagnostics() {
+            // Device information
+            const deviceInfo = document.getElementById('device-info');
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            
+            deviceInfo.innerHTML = `
+                <p><strong>Device Type:</strong> ${isMobile ? 'Mobile' : 'Desktop'}</p>
+                <p><strong>User Agent:</strong> ${navigator.userAgent.substring(0, 80)}...</p>
+                <p><strong>Connection:</strong> ${connection ? connection.effectiveType : 'Unknown'}</p>
+                <p><strong>WebRTC Support:</strong> ${window.RTCPeerConnection ? 'Yes' : 'No'}</p>
+                <p><strong>Current URL:</strong> ${window.location.href}</p>
+            `;
+        }
+        
+        async function testConnection() {
+            updateStatus('Testing connection...', 'info');
+            log('Starting connection test...');
+            
+            try {
+                // Test server connection
+                log('Testing server connection...');
+                const serverUrl = window.location.origin;
+                
+                // Detect environment
+                const hostname = window.location.hostname;
+                const isProduction = hostname !== 'localhost' && hostname !== '127.0.0.1';
+                log(`Environment: ${isProduction ? 'Production' : 'Development'}`);
+                log(`Server URL: ${serverUrl}`);
+                
+                // Test socket connection
+                log('Testing Socket.io connection...');
+                
+                if (socket) {
+                    socket.disconnect();
+                }
+                
+                socket = io(serverUrl, {
+                    timeout: 10000,
+                    transports: ['websocket', 'polling']
+                });
+                
+                socket.on('connect', () => {
+                    log('✅ Socket.io connected successfully');
+                    log(`Socket ID: ${socket.id}`);
+                    updateStatus('Connection successful!', 'success');
+                    
+                    // Test basic server communication
+                    testServerCommunication();
+                });
+                
+                socket.on('connect_error', (error) => {
+                    log('❌ Socket.io connection failed: ' + error.message);
+                    updateStatus('Connection failed', 'error');
+                });
+                
+                socket.on('disconnect', (reason) => {
+                    log('🔌 Socket disconnected: ' + reason);
+                });
+                
+            } catch (error) {
+                log('❌ Connection test failed: ' + error.message);
+                updateStatus('Connection test failed', 'error');
+            }
+        }
+        
+        function testServerCommunication() {
+            log('Testing server communication...');
+            
+            // Test health endpoint
+            fetch(window.location.origin + '/health')
+                .then(response => response.json())
+                .then(data => {
+                    log('✅ Health check successful');
+                    log(`Server status: ${data.status}`);
+                    log(`Environment: ${data.environment}`);
+                    log(`Database: ${data.database}`);
+                })
+                .catch(error => {
+                    log('⚠️ Health check failed: ' + error.message);
+                });
+                
+            // Test code generation
+            socket.emit('generate-code', {});
+            
+            socket.once('code-generated', (data) => {
+                log('✅ Code generation test successful');
+                log(`Generated code: ${data.code}`);
+            });
+            
+            socket.once('error', (error) => {
+                log('❌ Server communication error: ' + error.message);
+            });
+        }
+        
+        // Initialize diagnostics on page load
+        initDiagnostics();
+        
+        // Auto-test connection
+        setTimeout(testConnection, 1000);
+    </script>
+</body>
+</html>

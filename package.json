@@ -7,7 +7,13 @@
     "start": "cd backend && npm start",
     "dev": "cd backend && npm run dev",
     "install-all": "cd backend && npm install",
-    "setup": "npm run install-all && cd backend && npm run init-db"
+    "setup": "npm run install-all && cd backend && npm run init-db",
+    "build": "npm run install-all",
+    "postinstall": "cd backend && npm install"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
   },
   "keywords": [
     "file-transfer",
@@ -22,5 +28,8 @@
   "directories": {
     "backend": "./backend",
     "frontend": "./frontend"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.1"
   }
 }

@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: tranferhub
+    env: node
+    plan: free
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+    autoDeploy: false
+  
+  - type: pserv
+    name: tranferhub-db
+    plan: free
+    env: postgresql
+    envVars:
+      - key: POSTGRES_DB
+        value: tranferhub
+      - key: POSTGRES_USER
+        value: tranferhub_user
+      - key: POSTGRES_PASSWORD
+        generateValue: true

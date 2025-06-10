@@ -4,6 +4,7 @@ class MemoryStorage {
     this.transferSessions = new Map();
     this.users = new Map();
     this.transferStats = new Map();
+    this.relayFiles = new Map(); // For storing files during server relay
   }
 
   // Transfer session methods
@@ -92,12 +93,71 @@ class MemoryStorage {
     return stat;
   }
 
+  // Relay file storage methods for cross-device transfers
+  storeRelayFile(code, fileIndex, fileData) {
+    if (!this.relayFiles.has(code)) {
+      this.relayFiles.set(code, {
+        files: [],
+        uploadComplete: false,
+        totalFiles: 0,
+        createdAt: new Date()
+      });
+    }
+    
+    const relayData = this.relayFiles.get(code);
+    relayData.files[fileIndex] = fileData;
+    
+    // Auto-expire after 1 hour
+    setTimeout(() => {
+      this.relayFiles.delete(code);
+    }, 60 * 60 * 1000);
+  }
+  
+  markUploadComplete(code, totalFiles) {
+    if (this.relayFiles.has(code)) {
+      const relayData = this.relayFiles.get(code);
+      relayData.uploadComplete = true;
+      relayData.totalFiles = totalFiles;
+    }
+  }
+  
+  getRelayFiles(code) {
+    const relayData = this.relayFiles.get(code);
+    if (!relayData || !relayData.uploadComplete) {
+      return null;
+    }
+    
+    // Return files in correct order
+    const files = [];
+    for (let i = 0; i < relayData.totalFiles; i++) {
+      if (relayData.files[i]) {
+        files.push(relayData.files[i]);
+      }
+    }
+    
+    return files;
+  }
+  
+  cleanupRelayFiles(code) {
+    return this.relayFiles.delete(code);
+  }
+
   // Cleanup expired sessions
   cleanup() {
     const now = new Date();
+    
+    // Cleanup transfer sessions
     for (const [code, session] of this.transferSessions.entries()) {
       if (now > session.expires_at) {
         this.transferSessions.delete(code);
+      }
+    }
+    
+    // Cleanup relay files older than 1 hour
+    for (const [code, relayData] of this.relayFiles.entries()) {
+      const hourAgo = new Date(now - 60 * 60 * 1000);
+      if (relayData.createdAt < hourAgo) {
+        this.relayFiles.delete(code);
       }
     }
   }
