@@ -305,39 +305,88 @@ io.on('connection', (socket) => {
       socket.emit('error', { message: 'Relay transfer failed' });
     }
   });
-  
-  // Enhanced server relay handlers for cross-device transfers
+    // Enhanced server relay handlers for cross-device transfers
   socket.on('relay-file-upload', async (data) => {
     try {
       const { code, fileData, fileIndex, totalFiles } = data;
-      console.log(`Relay file upload for code ${code}: ${fileData.name} (${fileIndex + 1}/${totalFiles})`);
+      
+      // Validate input data
+      if (!code || !fileData || fileIndex === undefined || !totalFiles) {
+        socket.emit('relay-error', { 
+          error: 'Invalid upload data provided' 
+        });
+        return;
+      }
+      
+      if (!fileData.name || !fileData.data) {
+        socket.emit('relay-error', { 
+          error: 'File data is incomplete' 
+        });
+        return;
+      }
+      
+      console.log(`📤 Relay file upload for code ${code}: ${fileData.name} (${fileIndex + 1}/${totalFiles}) - ${fileData.size} bytes`);
+      
+      // Validate file size (limit to 100MB per file)
+      const maxFileSize = 100 * 1024 * 1024; // 100MB
+      if (fileData.size > maxFileSize) {
+        socket.emit('relay-error', { 
+          error: `File ${fileData.name} is too large. Maximum size is 100MB.` 
+        });
+        return;
+      }
       
       // Store file in memory storage with the transfer code
-      memoryStorage.storeRelayFile(code, fileIndex, fileData);
+      try {
+        memoryStorage.storeRelayFile(code, fileIndex, fileData);
+      } catch (storageError) {
+        console.error('Storage error:', storageError);
+        socket.emit('relay-error', { 
+          error: 'Failed to store file on server' 
+        });
+        return;
+      }
       
       // Acknowledge file upload
       socket.emit('relay-file-upload-ack', {
         fileName: fileData.name,
-        fileIndex: fileIndex
+        fileIndex: fileIndex,
+        code: code
       });
       
-      console.log(`File ${fileData.name} stored for code ${code}`);
+      console.log(`✅ File ${fileData.name} stored successfully for code ${code}`);
       
     } catch (error) {
-      console.error('Error handling relay file upload:', error);
+      console.error('❌ Error handling relay file upload:', error);
       socket.emit('relay-error', { 
-        error: 'Failed to upload file to server' 
+        error: 'Failed to upload file to server: ' + error.message 
       });
     }
   });
-  
-  socket.on('relay-upload-complete', async (data) => {
+    socket.on('relay-upload-complete', async (data) => {
     try {
       const { code, totalFiles } = data;
-      console.log(`Relay upload complete for code ${code}, ${totalFiles} files`);
+      
+      // Validate input
+      if (!code || !totalFiles) {
+        socket.emit('relay-error', { 
+          error: 'Invalid completion data provided' 
+        });
+        return;
+      }
+      
+      console.log(`📋 Relay upload complete for code ${code}, ${totalFiles} files`);
       
       // Mark upload as complete in memory storage
-      memoryStorage.markUploadComplete(code, totalFiles);
+      try {
+        memoryStorage.markUploadComplete(code, totalFiles);
+      } catch (storageError) {
+        console.error('Storage error during completion:', storageError);
+        socket.emit('relay-error', { 
+          error: 'Failed to mark upload as complete' 
+        });
+        return;
+      }
       
       // Acknowledge upload completion
       socket.emit('relay-upload-complete-ack', {
@@ -345,42 +394,67 @@ io.on('connection', (socket) => {
         totalFiles: totalFiles
       });
       
-      console.log(`Upload marked complete for code ${code}`);
+      console.log(`✅ Upload marked complete for code ${code}`);
       
     } catch (error) {
-      console.error('Error handling relay upload completion:', error);
+      console.error('❌ Error handling relay upload completion:', error);
       socket.emit('relay-error', { 
-        error: 'Failed to complete upload' 
+        error: 'Failed to complete upload: ' + error.message 
       });
     }
   });
-  
-  socket.on('relay-file-request', async (data) => {
+    socket.on('relay-file-request', async (data) => {
     try {
       const { code } = data;
-      console.log(`Relay file request for code ${code}`);
+      
+      // Validate input
+      if (!code) {
+        socket.emit('relay-error', { 
+          error: 'No transfer code provided' 
+        });
+        return;
+      }
+      
+      console.log(`📥 Relay file request for code ${code}`);
       
       // Get files from memory storage
       const storedFiles = memoryStorage.getRelayFiles(code);
       
       if (!storedFiles || storedFiles.length === 0) {
+        console.log(`❌ No files found for code ${code}`);
         socket.emit('relay-error', { 
-          error: 'No files found for this code' 
+          error: 'No files found for this code. Please check the code or ensure files were uploaded successfully.' 
         });
         return;
       }
       
-      // Send files one by one
+      console.log(`📦 Found ${storedFiles.length} files for code ${code}`);
+      
+      // Send files one by one with error handling
       for (let i = 0; i < storedFiles.length; i++) {
-        const fileData = storedFiles[i];
-        socket.emit('relay-file-download', {
-          fileData: fileData,
-          fileIndex: i,
-          totalFiles: storedFiles.length
-        });
-        
-        // Small delay between files to prevent overwhelming the client
-        await new Promise(resolve => setTimeout(resolve, 100));
+        try {
+          const fileData = storedFiles[i];
+          
+          if (!fileData || !fileData.name) {
+            console.error(`Invalid file data at index ${i}`);
+            continue;
+          }
+          
+          console.log(`📤 Sending file ${i + 1}/${storedFiles.length}: ${fileData.name}`);
+          
+          socket.emit('relay-file-download', {
+            fileData: fileData,
+            fileIndex: i,
+            totalFiles: storedFiles.length
+          });
+          
+          // Small delay between files to prevent overwhelming the client
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+        } catch (fileError) {
+          console.error(`Error sending file ${i}:`, fileError);
+          // Continue with other files
+        }
       }
       
       // Send completion signal
@@ -389,15 +463,18 @@ io.on('connection', (socket) => {
         totalFiles: storedFiles.length
       });
       
-      console.log(`All ${storedFiles.length} files sent for code ${code}`);
+      console.log(`✅ All ${storedFiles.length} files sent for code ${code}`);
       
       // Clean up files after successful download
-      memoryStorage.cleanupRelayFiles(code);
+      setTimeout(() => {
+        memoryStorage.cleanupRelayFiles(code);
+        console.log(`🧹 Cleaned up files for code ${code}`);
+      }, 5000); // 5 second delay to ensure client receives all data
       
     } catch (error) {
-      console.error('Error handling relay file request:', error);
+      console.error('❌ Error handling relay file request:', error);
       socket.emit('relay-error', { 
-        error: 'Failed to retrieve files from server' 
+        error: 'Failed to retrieve files from server: ' + error.message 
       });
     }
   });

@@ -1777,15 +1777,14 @@ class SendAnywhereApp {    constructor() {
             console.log('Acting as receiver - requesting files from server');
             this.requestFilesFromServer();
         }
-    }
-
-    async sendFilesViaServer() {
+    }    async sendFilesViaServer() {
         if (!this.selectedFiles.length || !this.currentCode) {
             console.error('No files or code available for server relay');
+            this.showToast('No files selected or no transfer code available', 'error');
             return;
         }
         
-        console.log('Sending files via server relay');
+        console.log('🚀 Starting server relay upload for', this.selectedFiles.length, 'files');
         
         const statusMessage = document.getElementById('status-message');
         if (statusMessage) {
@@ -1793,92 +1792,224 @@ class SendAnywhereApp {    constructor() {
             statusMessage.className = 'status-uploading';
         }
         
+        // Add timeout and error handling for server relay
+        let uploadTimeout = setTimeout(() => {
+            console.error('Server relay upload timeout');
+            this.showToast('Upload timeout. Please try again.', 'error');
+            if (statusMessage) {
+                statusMessage.textContent = 'Upload timeout. Please try again.';
+                statusMessage.className = 'status-error';
+            }
+        }, 30000); // 30 second timeout
+        
         try {
+            // Listen for upload acknowledgments with timeout
+            const uploadPromises = [];
+            
             for (let i = 0; i < this.selectedFiles.length; i++) {
                 const file = this.selectedFiles[i];
-                console.log(`Uploading file ${i + 1}/${this.selectedFiles.length}: ${file.name}`);
+                console.log(`📤 Uploading file ${i + 1}/${this.selectedFiles.length}: ${file.name}`);
                 
                 // Update progress
                 if (statusMessage) {
                     statusMessage.textContent = `Uploading ${file.name} (${i + 1}/${this.selectedFiles.length})...`;
                 }
                 
-                const fileData = await this.fileToBase64(file);
-                
-                // Send file to server with transfer code
-                this.socket.emit('relay-file-upload', {
-                    code: this.currentCode,
-                    fileData: {
-                        name: file.name,
-                        size: file.size,
-                        type: file.type,
-                        lastModified: file.lastModified,
-                        data: fileData.data
-                    },
-                    fileIndex: i,
-                    totalFiles: this.selectedFiles.length
+                // Create upload promise for this file
+                const uploadPromise = new Promise((resolve, reject) => {
+                    const uploadTimeout = setTimeout(() => {
+                        reject(new Error(`Upload timeout for file: ${file.name}`));
+                    }, 10000);
+                    
+                    // Listen for this specific file upload acknowledgment
+                    const ackHandler = (data) => {
+                        if (data.fileIndex === i) {
+                            clearTimeout(uploadTimeout);
+                            this.socket.off('relay-file-upload-ack', ackHandler);
+                            resolve(data);
+                        }
+                    };
+                    
+                    this.socket.on('relay-file-upload-ack', ackHandler);
+                    
+                    // Also listen for errors
+                    const errorHandler = (error) => {
+                        clearTimeout(uploadTimeout);
+                        this.socket.off('relay-file-upload-ack', ackHandler);
+                        this.socket.off('relay-error', errorHandler);
+                        reject(new Error(error.error || 'Upload failed'));
+                    };
+                    
+                    this.socket.on('relay-error', errorHandler);
                 });
                 
-                // Add small delay to prevent overwhelming the server
+                try {
+                    const fileData = await this.fileToBase64(file);
+                    
+                    // Send file to server with transfer code
+                    this.socket.emit('relay-file-upload', {
+                        code: this.currentCode,
+                        fileData: {
+                            name: file.name,
+                            size: file.size,
+                            type: file.type,
+                            lastModified: file.lastModified || Date.now(),
+                            data: fileData.data
+                        },
+                        fileIndex: i,
+                        totalFiles: this.selectedFiles.length
+                    });
+                    
+                    uploadPromises.push(uploadPromise);
+                    
+                } catch (fileError) {
+                    console.error(`Error processing file ${file.name}:`, fileError);
+                    throw new Error(`Failed to process file: ${file.name}`);
+                }
+                
+                // Small delay to prevent overwhelming the server
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
             
-            // Send completion signal
+            // Wait for all uploads to be acknowledged
+            console.log('⏳ Waiting for all file uploads to be acknowledged...');
+            await Promise.all(uploadPromises);
+            
+            // Send completion signal and wait for acknowledgment
+            console.log('📋 Sending upload completion signal...');
+            const completionPromise = new Promise((resolve, reject) => {
+                const completionTimeout = setTimeout(() => {
+                    reject(new Error('Upload completion timeout'));
+                }, 5000);
+                
+                const completionHandler = (data) => {
+                    if (data.code === this.currentCode) {
+                        clearTimeout(completionTimeout);
+                        this.socket.off('relay-upload-complete-ack', completionHandler);
+                        resolve(data);
+                    }
+                };
+                
+                this.socket.on('relay-upload-complete-ack', completionHandler);
+            });
+            
             this.socket.emit('relay-upload-complete', {
                 code: this.currentCode,
                 totalFiles: this.selectedFiles.length
             });
             
+            await completionPromise;
+            
+            clearTimeout(uploadTimeout);
+            
+            console.log('✅ All files uploaded successfully via server relay');
+            
             if (statusMessage) {
-                statusMessage.textContent = 'Files uploaded! Waiting for receiver...';
-                statusMessage.className = 'status-uploaded';
+                statusMessage.textContent = 'Files uploaded! Ready for download.';
+                statusMessage.className = 'status-completed';
             }
             
-            this.showToast('Files uploaded to server. Ready for download!', 'success');
+            this.showToast('Files uploaded successfully! Ready for download.', 'success');
             
         } catch (error) {
-            console.error('Error uploading files to server:', error);
+            clearTimeout(uploadTimeout);
+            console.error('❌ Error uploading files to server:', error);
             this.showToast('Upload failed: ' + error.message, 'error');
             
             if (statusMessage) {
                 statusMessage.textContent = 'Upload failed. Please try again.';
                 statusMessage.className = 'status-error';
             }
+            
+            // Clean up any event listeners
+            this.socket.off('relay-file-upload-ack');
+            this.socket.off('relay-upload-complete-ack');
+            this.socket.off('relay-error');
         }
-    }
-
-    requestFilesFromServer() {
+    }    requestFilesFromServer() {
         if (!this.currentCode) {
             console.error('No transfer code available for requesting files');
+            this.showToast('No transfer code available', 'error');
             return;
         }
         
-        console.log('Requesting files from server for code:', this.currentCode);
+        console.log('🔽 Requesting files from server for code:', this.currentCode);
         
         const receiveMessage = document.getElementById('receive-message');
         if (receiveMessage) {
-            receiveMessage.textContent = 'Downloading files from server...';
-            receiveMessage.className = 'status-downloading';
+            receiveMessage.textContent = 'Connecting to server...';
+            receiveMessage.className = 'status-connecting';
         }
         
-        // Request files from server
-        this.socket.emit('relay-file-request', {
-            code: this.currentCode
-        });
+        // Set up timeout for download request
+        const downloadTimeout = setTimeout(() => {
+            console.error('Server relay download timeout');
+            this.showToast('Download timeout. Please try again.', 'error');
+            if (receiveMessage) {
+                receiveMessage.textContent = 'Download timeout. Please try again.';
+                receiveMessage.className = 'status-error';
+            }
+        }, 30000); // 30 second timeout
         
-        // Listen for file downloads
+        // Clear any existing event listeners to prevent duplicates
+        this.socket.off('relay-file-download');
+        this.socket.off('relay-download-complete');
+        this.socket.off('relay-error');
+        
+        // Set up one-time event listeners for this download session
+        let filesReceived = 0;
+        let totalFilesExpected = 0;
+        
+        // Listen for individual file downloads
         this.socket.on('relay-file-download', (data) => {
-            console.log(`Receiving file: ${data.fileData.name}`);
-            this.handleServerRelayedFile(data);
+            console.log(`📥 Receiving file from server: ${data.fileData.name} (${data.fileIndex + 1}/${data.totalFiles})`);
+            
+            if (totalFilesExpected === 0) {
+                totalFilesExpected = data.totalFiles;
+            }
+            
+            if (receiveMessage) {
+                receiveMessage.textContent = `Downloading ${data.fileData.name} (${data.fileIndex + 1}/${data.totalFiles})...`;
+                receiveMessage.className = 'status-downloading';
+            }
+            
+            try {
+                this.handleServerRelayedFile(data);
+                filesReceived++;
+                
+                // Show progress
+                const progress = (filesReceived / totalFilesExpected) * 100;
+                this.showToast(`Downloaded ${data.fileData.name} (${filesReceived}/${totalFilesExpected})`, 'info', 2000);
+                
+            } catch (error) {
+                console.error('Error processing downloaded file:', error);
+                this.showToast(`Error processing ${data.fileData.name}`, 'error');
+            }
         });
         
+        // Listen for download completion
         this.socket.on('relay-download-complete', (data) => {
-            console.log('All files received via server relay');
+            clearTimeout(downloadTimeout);
+            console.log('✅ Server relay download completed successfully');
+            
+            // Clean up event listeners
+            this.socket.off('relay-file-download');
+            this.socket.off('relay-download-complete');
+            this.socket.off('relay-error');
+            
             this.handleServerRelayComplete(data);
         });
         
+        // Listen for errors
         this.socket.on('relay-error', (data) => {
-            console.error('Server relay error:', data.error);
+            clearTimeout(downloadTimeout);
+            console.error('❌ Server relay error:', data.error);
+            
+            // Clean up event listeners
+            this.socket.off('relay-file-download');
+            this.socket.off('relay-download-complete');
+            this.socket.off('relay-error');
+            
             this.showToast('Download failed: ' + data.error, 'error');
             
             if (receiveMessage) {
@@ -1886,46 +2017,262 @@ class SendAnywhereApp {    constructor() {
                 receiveMessage.className = 'status-error';
             }
         });
-    }
-
-    handleServerRelayedFile(data) {
+        
+        // Request files from server
+        console.log('📨 Sending file request to server...');
+        if (receiveMessage) {
+            receiveMessage.textContent = 'Requesting files from server...';
+            receiveMessage.className = 'status-requesting';
+        }
+        
+        this.socket.emit('relay-file-request', {
+            code: this.currentCode
+        });
+    }    handleServerRelayedFile(data) {
         const { fileData, fileIndex, totalFiles } = data;
         
-        console.log(`Processing relayed file ${fileIndex + 1}/${totalFiles}: ${fileData.name}`);
+        console.log(`📋 Processing relayed file ${fileIndex + 1}/${totalFiles}: ${fileData.name} (${this.formatFileSize(fileData.size)})`);
         
-        // Update progress
-        const receiveMessage = document.getElementById('receive-message');
-        if (receiveMessage) {
-            receiveMessage.textContent = `Downloading ${fileData.name} (${fileIndex + 1}/${totalFiles})...`;
+        try {
+            // Validate file data
+            if (!fileData.name || !fileData.data) {
+                throw new Error('Invalid file data received from server');
+            }
+            
+            // Convert base64 data to blob
+            let blob;
+            if (fileData.data.startsWith('data:')) {
+                // Data URL format
+                const response = fetch(fileData.data);
+                blob = response.then(r => r.blob());
+            } else {
+                // Raw base64 - convert to blob
+                try {
+                    const binaryString = atob(fileData.data.split(',')[1] || fileData.data);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    blob = new Blob([bytes], { type: fileData.type || 'application/octet-stream' });
+                } catch (base64Error) {
+                    console.error('Error decoding base64 data:', base64Error);
+                    throw new Error('Failed to decode file data');
+                }
+            }
+            
+            // Store the file data for download
+            if (!this.receivedFiles) {
+                this.receivedFiles = [];
+            }
+            
+            const fileObj = {
+                name: fileData.name,
+                size: fileData.size,
+                type: fileData.type || 'application/octet-stream',
+                blob: blob,
+                url: blob instanceof Promise ? null : URL.createObjectURL(blob),
+                data: fileData.data // Keep original data for backup
+            };
+            
+            // Handle blob promise if needed
+            if (blob instanceof Promise) {
+                blob.then(resolvedBlob => {
+                    fileObj.blob = resolvedBlob;
+                    fileObj.url = URL.createObjectURL(resolvedBlob);
+                    
+                    // Add to received files array
+                    this.receivedFiles.push(fileObj);
+                    
+                    console.log(`✅ File processed successfully: ${fileData.name}`);
+                }).catch(error => {
+                    console.error('Error processing blob promise:', error);
+                    // Fallback: store without blob
+                    this.receivedFiles.push(fileObj);
+                });
+            } else {
+                // Add to received files array
+                this.receivedFiles.push(fileObj);
+                console.log(`✅ File processed successfully: ${fileData.name}`);
+            }
+            
+        } catch (error) {
+            console.error(`❌ Error processing file ${fileData.name}:`, error);
+            // Still try to store the file for manual processing
+            if (!this.receivedFiles) {
+                this.receivedFiles = [];
+            }
+            this.receivedFiles.push({
+                name: fileData.name,
+                size: fileData.size,
+                type: fileData.type,
+                error: error.message,
+                data: fileData.data
+            });
+            throw error; // Re-throw to trigger error handling in caller
         }
-        
-        // Store the file data for later download
-        if (!this.receivedFiles) {
-            this.receivedFiles = [];
-        }
-        
-        this.receivedFiles.push({
-            name: fileData.name,
-            size: fileData.size,
-            type: fileData.type,
-            data: fileData.data
-        });
-        
-        // Show partial progress
-        this.showToast(`Received ${fileData.name} (${fileIndex + 1}/${totalFiles})`, 'success', 2000);
-    }
-
-    handleServerRelayComplete(data) {
-        console.log('Server relay transfer completed');
+    }    handleServerRelayComplete(data) {
+        console.log('✅ Server relay transfer completed successfully');
         
         const receiveMessage = document.getElementById('receive-message');
         if (receiveMessage) {
             receiveMessage.textContent = `${this.receivedFiles.length} files downloaded successfully!`;
             receiveMessage.className = 'status-complete';
         }
-          // Show download interface
-        this.showReceivedFiles();
+        
+        // Show download interface
+        this.showServerRelayedFiles();
         this.showToast(`Transfer complete! ${this.receivedFiles.length} files received.`, 'success');
+    }
+
+    showServerRelayedFiles() {
+        if (!this.receivedFiles || this.receivedFiles.length === 0) {
+            console.warn('No files to display');
+            return;
+        }
+
+        console.log('📁 Displaying', this.receivedFiles.length, 'received files');
+        
+        const receivedFilesDiv = document.getElementById('received-files');
+        let fileList = document.getElementById('received-file-list');
+        
+        if (!receivedFilesDiv) {
+            console.error('received-files element not found');
+            return;
+        }
+
+        // Create file list if it doesn't exist
+        if (!fileList) {
+            fileList = document.createElement('div');
+            fileList.id = 'received-file-list';
+            receivedFilesDiv.appendChild(fileList);
+        }
+
+        // Clear existing files to avoid duplicates
+        fileList.innerHTML = '';
+        
+        // Show the section
+        receivedFilesDiv.classList.remove('hidden');
+        receivedFilesDiv.style.display = 'block';
+
+        this.receivedFiles.forEach((file, index) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item received-file-item';
+            fileItem.style.animation = 'slideInUp 0.3s ease-out';
+            
+            // Determine file icon
+            let fileIcon = 'fa-file';
+            if (file.name.toLowerCase().match(/\.(jpg|jpeg|png|gif|bmp|webp|svg)$/)) {
+                fileIcon = 'fa-file-image';
+            } else if (file.name.toLowerCase().match(/\.(mp4|avi|mov|wmv|flv|webm|mkv)$/)) {
+                fileIcon = 'fa-file-video';
+            } else if (file.name.toLowerCase().match(/\.(mp3|wav|flac|aac|ogg)$/)) {
+                fileIcon = 'fa-file-audio';
+            } else if (file.name.toLowerCase().match(/\.(pdf)$/)) {
+                fileIcon = 'fa-file-pdf';
+            } else if (file.name.toLowerCase().match(/\.(doc|docx)$/)) {
+                fileIcon = 'fa-file-word';
+            } else if (file.name.toLowerCase().match(/\.(txt)$/)) {
+                fileIcon = 'fa-file-alt';
+            }
+            
+            // Create download functionality
+            let downloadButton;
+            if (file.url && !file.error) {
+                // Direct blob download
+                downloadButton = `
+                    <a href="${file.url}" download="${file.name}" class="btn btn-primary download-btn">
+                        <i class="fas fa-download"></i> Download
+                    </a>
+                `;
+            } else if (file.data && !file.error) {
+                // Create download from data
+                downloadButton = `
+                    <button onclick="app.downloadFileFromData(${index})" class="btn btn-primary download-btn">
+                        <i class="fas fa-download"></i> Download
+                    </button>
+                `;
+            } else {
+                // Error case
+                downloadButton = `
+                    <button disabled class="btn btn-secondary download-btn">
+                        <i class="fas fa-exclamation-triangle"></i> Error
+                    </button>
+                `;
+            }
+
+            fileItem.innerHTML = `
+                <div class="file-info">
+                    <i class="fas ${fileIcon}"></i>
+                    <div class="file-details">
+                        <span class="file-name">${file.name}</span>
+                        <span class="file-size">(${this.formatFileSize(file.size)})</span>
+                        ${file.error ? `<span class="file-error">Error: ${file.error}</span>` : ''}
+                    </div>
+                </div>
+                ${downloadButton}
+            `;
+            
+            fileList.appendChild(fileItem);
+        });
+
+        // Show download all button if there are multiple files without errors
+        const validFiles = this.receivedFiles.filter(f => !f.error);
+        if (validFiles.length > 1) {
+            const downloadAllBtn = document.getElementById('download-all-btn');
+            if (downloadAllBtn) {
+                downloadAllBtn.classList.remove('hidden');
+                downloadAllBtn.style.animation = 'fadeIn 0.3s ease-in-out';
+            }
+        }
+    }
+
+    downloadFileFromData(fileIndex) {
+        const file = this.receivedFiles[fileIndex];
+        if (!file || !file.data) {
+            this.showToast('File data not available', 'error');
+            return;
+        }
+
+        try {
+            // Convert data URL or base64 to blob
+            let blob;
+            if (file.data.startsWith('data:')) {
+                // Data URL - convert to blob
+                fetch(file.data)
+                    .then(res => res.blob())
+                    .then(blob => {
+                        this.triggerDownload(blob, file.name);
+                    })
+                    .catch(error => {
+                        console.error('Error converting data URL to blob:', error);
+                        this.showToast('Download failed', 'error');
+                    });
+            } else {
+                // Base64 - convert to blob
+                const binaryString = atob(file.data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                blob = new Blob([bytes], { type: file.type || 'application/octet-stream' });
+                this.triggerDownload(blob, file.name);
+            }
+        } catch (error) {
+            console.error('Error downloading file:', error);
+            this.showToast('Download failed: ' + error.message, 'error');
+        }
+    }
+
+    triggerDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     }
     
     async sendFilesViaServer() {
